@@ -33,8 +33,7 @@
 #define SCALAR 5
 #define DEBUG 1
 
-#define FILE_PATH "/media/upenn/jizyan/T1/"
-//#define FILE_PATH "./"
+#define FILE_PATH "./"
 #define INPUT_FOLDER "reconstruction/"
 #define OUTPUT_FOLDER "absolute/"
 
@@ -56,6 +55,7 @@ bool new_frame_flag = false;
 cv::Scalar color_red = cv::Scalar(0, 0, 255);
 cv::Scalar color_green = cv::Scalar(0, 255, 0);
 cv::Scalar color_blue = cv::Scalar(255, 0, 0);
+cv::Scalar color_yellow = cv::Scalar(255, 255, 0);
 
 // pthread
 pthread_rwlock_t image_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -250,9 +250,9 @@ void* Optical_Flow(void* param) {
 		//}
 		//pthread_rwlock_unlock(&feature_lock);
 		
-		//////////////////////////////
-		////// Optical Flow
-		//////////////////////////////
+		//////////////////////////////////////////////////////////////////////////////////////
+		///////////////////// 		Optical Flow
+		//////////////////////////////////////////////////////////////////////////////////////
 		vector<uchar> optical_flow_found_feature(nFeatures);
 		vector<float> optical_flow_feature_error(nFeatures);
 
@@ -285,21 +285,21 @@ void* Optical_Flow(void* param) {
 					 optical_flow_window, 15,
 					 optical_flow_termination_criteria,
 					 cv::OPTFLOW_USE_INITIAL_FLOW);
-		if (false) {
+		if (DEBUG) {
+			//static_cast<unsigned>(optical_flow_found_feature);
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/ferture_after_flow_%0d.txt", iFile);
 			ofstream fout(output_file_name);
 			for (int i = 0; i < optical_flow_found_feature.size(); i++)
 			{
-				fout << "( " << feature1[i].x << " " << feature1[i].y << " ) error: " << optical_flow_feature_error[i] << endl;
+				fout << (int)optical_flow_found_feature[i] << " ( " << feature1[i].x << " " << feature1[i].y << " ) error: " << optical_flow_feature_error[i] << endl;
 			}
 			fout.close();
 		}
 
 		if (DEBUG) {
 			char output_file_name[100];
-			//sprintf(output_file_name, "./result/flow_feature_number_%0d.txt", iFile);
-			sprintf(output_file_name, "/media/upenn/jizyan/result/flow_feature_number_%0d.txt", iFile);
+			sprintf(output_file_name, "./result/flow_feature_number_%0d.txt", iFile);
 			ofstream fout(output_file_name);
 			fout << iFile << " " << feature0.size() << " " << feature1.size() << endl;
 			fout.close();
@@ -316,41 +316,45 @@ void* Optical_Flow(void* param) {
 		//	cout<<feature0[i].x<<" "<<feature0[i].y<<endl;
 		//}
 
-		// debug before undistortion
+		// plot flow before undistortion
 		if (DEBUG)
 			cvtColor(img_curr, img_debug, CV_GRAY2RGB);
 		for (int i = 0; i < feature1.size(); i++)
 		{
 			vx[i] = feature1[i].x;
 			vy[i] = feature1[i].y;
+
+			// plot flow tracking
 			if (DEBUG) {
 				if (new_feature_flag) {
 					pthread_rwlock_wrlock(&image_lock);
 					new_frame_flag = false;
 					pthread_rwlock_unlock(&image_lock);
-					if (vCorr_scales[i] < SCALAR)
+					
+					if ((int)optical_flow_found_feature[i] == 1)
 						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_green, 2);
 					else
-						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_blue, 2);
+						circle(img_debug, feature0[i], 1.4 * vCorr_scales[i], color_red, 2);
 				} else {
-					if (vCorr_scales[i] < SCALAR)
-						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_red, 2);
-					else
+					if ((int)optical_flow_found_feature[i] == 1)
 						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_blue, 2);
+					else
+						circle(img_debug, feature0[i], 1.4 * vCorr_scales[i], color_red, 2);
 				}
 			}
-		// cout<<vx[i]<<" "<<vy[i]<<endl;
 		}
+
 		if (DEBUG) {
 			char output_file_name[100];
-			// sprintf(output_file_name, "./result/flow_image_%0d.bmp", iFile);
-			sprintf(output_file_name, "/media/upenn/jizyan/result/flow_iamge_%0d.bmp", iFile);
+			sprintf(output_file_name, "./result/flow_image_%0d.bmp", iFile);
 			imwrite(output_file_name, img_debug);
 		}
 
 		Undistortion_Radial(K, invK, k1, vx, vy);
 
-		//EPnP
+		/////////////////////////////////////////////////////////////////
+		/////////////////////		EPnP
+		/////////////////////////////////////////////////////////////////
 		gettimeofday(&t1,NULL);
 		int num_tracked = 0;
 		for (int iPoint = 0; iPoint < nFeatures; iPoint++){
@@ -391,7 +395,7 @@ void* Optical_Flow(void* param) {
 		}
 
 		gettimeofday(&t2,NULL);
-		printTime("    <Tracking> Epnp time: ",t1,t2); 
+		printTime("    <Tracking> Epnp time: ", t1, t2);
 		cvReleaseMat(&cX);
 		cvReleaseMat(&cx);
 		//cout<<"<Tracking>pnp inlier:"<<vInlier.size()<<endl; 
@@ -505,10 +509,6 @@ int main ( int argc, char * * argv )
 	vector<vector<int> > vvDesc;
 	LoadStructureData(structureFile, vID, vX, vY, vZ);
 	LoadDescriptorData(descriptorFile, vvDesc);
-
-	vector<Correspondence2D3D> vCorr_temp;
-	SaveCorrespondence2D3DData(usedSIFTFile, vCorr_temp, 0, FILESAVE_WRITE_MODE);
-	SaveCorrespondence2D3DData(usedSIFTFile_ransac, vCorr_temp, 0, FILESAVE_WRITE_MODE);
 		
 	//Retrieve 3D descriptor
 	vector<vector<int> > vvDesc_temp;
@@ -579,6 +579,7 @@ int main ( int argc, char * * argv )
 			continue;
 		}
 		currentID = frameID;
+
 		current_img.convertTo(img, CV_32FC1);
 		pthread_rwlock_unlock(&image_lock);
 
@@ -596,8 +597,10 @@ int main ( int argc, char * * argv )
 	  	CudaImage img_cuda;
 	  	img_cuda.Allocate(w, h, iAlignUp(w, 128), false, NULL, (float*)img.data);
 	  	img_cuda.Download();
-
-	  	// Extract Sift features from images
+		
+		////////////////////////////////////////////////////////////////////////
+	  	//////////////////		Sift extraction
+		////////////////////////////////////////////////////////////////////////
 		gettimeofday(&t1,NULL);
 	  	SiftData siftData;
 	  	float initBlur = 0.0f;
@@ -612,12 +615,6 @@ int main ( int argc, char * * argv )
 		for (int i = 0; i < siftData.numPts; i++)
 		{
 			if (siftData.h_data[i].scale > SCALAR) {
-				//if (DEBUG) {
-				//	vx_large_scale.push_back(siftData.h_data[i].xpos);
-				//	vy_large_scale.push_back(siftData.h_data[i].ypos);
-				//} else {
-				//	continue;
-				//}
 				continue;
 			}
 			vx.push_back(siftData.h_data[i].xpos);
@@ -645,7 +642,9 @@ int main ( int argc, char * * argv )
 		FreeSiftData(siftData);
 		cout << "<Matching> Sift number: " << vSift_desc.size() << endl;
 		
-		//FLANN Matching	
+		////////////////////////////////////////////////////////////////////////
+	  	//////////////////		FLANN
+		////////////////////////////////////////////////////////////////////////	
 		gettimeofday(&t1,NULL);
 /*		int num_block = vSift_desc.size()/4;
 		if (vSift_desc.size()%4!=0) num_block++;
@@ -768,8 +767,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 				circle(img_debug, point, 5, color_red, 2);
 			}
 			char output_file_name[100];
-			//sprintf(output_file_name, "./result/corr_%0d.bmp", currentID);
-			sprintf(output_file_name, "/media/upenn/jizyan/result/corr_%0d.bmp", currentID);
+			sprintf(output_file_name, "./result/corr_%0d.bmp", currentID);
 			imwrite(output_file_name, img_debug);
 		}
 
@@ -792,7 +790,9 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		}
 		cout << "<Matching> Number of correspondences: " << vCorr.size() << endl;    
 		
-		//EPnP
+		////////////////////////////////////////////////////////////////////////
+	  	//////////////////		EPnP
+		////////////////////////////////////////////////////////////////////////
 		gettimeofday(&t1,NULL);
 		CvMat *cX = cvCreateMat(vCorr.size(), 3, CV_32FC1);
 		CvMat *cx = cvCreateMat(vCorr.size(), 2, CV_32FC1);
@@ -812,6 +812,15 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		vector<int> vInlier;
 		if (DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 5, 100, vInlier) < 20)
 		{
+
+			if (DEBUG) {
+				char output_file_name[100];
+				sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
+				ofstream fout(output_file_name);
+				fout << currentID << " " << vInlier.size() << endl;
+				fout.close();
+			}
+
 			cout << "<Matching> No ePNP solution " << vInlier.size() << endl;
 			cvReleaseMat(&cX);
 			cvReleaseMat(&cx);
@@ -830,6 +839,14 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 
 			continue;
 		}
+
+		if (DEBUG) {
+			char output_file_name[100];
+			sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
+			ofstream fout(output_file_name);
+			fout << currentID << " " << vInlier.size() << endl;
+			fout.close();
+		}
 		
 		
 		gettimeofday(&t2,NULL);
@@ -844,7 +861,6 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		
 		//restore inliner
 		pthread_rwlock_wrlock(&feature_lock);
-		new_frame_flag = true; // debug
 		last_frame = currentID;
 		last_corr.resize(vInlier.size());
 		scales.resize(vInlier.size()); // debug
@@ -863,7 +879,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		gettimeofday(&t_curr,NULL);
 		printTime("<Matching> Frame time: ",t_prev,t_curr);
 
-
+		// plot inliers
 		if (DEBUG) {
 			pthread_rwlock_rdlock(&feature_lock);
 			vector<Correspondence2D3D> corr_temp = last_corr;
@@ -882,8 +898,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 				circle(img_debug, point, 5, color_red, 2);
 			}
 			char output_file_name[100];
-			//sprintf(output_file_name, "./result/inlier_%0d.bmp", currentID);
-			sprintf(output_file_name, "/media/upenn/jizyan/result/inlier_%0d.bmp", currentID);
+			sprintf(output_file_name, "./result/inlier_%0d.bmp", currentID);
 			imwrite(output_file_name, img_debug);
 		}
 
@@ -898,19 +913,11 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 			fout.close();
 		}
 
-		if (DEBUG) {
-			char output_file_name[100];
-			//sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
-			sprintf(output_file_name, "/media/upenn/jizyan/result/inlier_number_%0d.txt", currentID);
-			ofstream fout(output_file_name);
-			fout << currentID << " " << vInlier.size() << endl;
-			fout.close();
-		}
-
 		vP[currentID] = P;
 		vFrame[currentID] = currentID;
 
 		pthread_rwlock_wrlock(&feature_lock);
+		new_frame_flag = true;
 		isSIFT = true;
 		pthread_rwlock_unlock(&feature_lock);
 	}
