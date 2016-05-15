@@ -186,19 +186,21 @@ void* Optical_Flow(void* param) {
 		bool new_feature_flag = false;
 		cv::imread(path+vFilename[iFile], 0).convertTo(img_curr, CV_8U);
 
-		pthread_rwlock_wrlock(&feature_lock);
+		pthread_rwlock_wrlock(&image_lock);
 		current_img = img_curr.clone();
-		pthread_rwlock_unlock(&feature_lock);
+		pthread_rwlock_unlock(&image_lock);
 
-		pthread_rwlock_rdlock(&feature_lock);
 		cout << "  <flow> Load file " << iFile << endl;
-		if (/*last_frame==frameID*/isSIFT){	
-			new_feature_flag = new_frame_flag;
+		pthread_rwlock_rdlock(&feature_lock);
+		if (/*last_frame==frameID*/isSIFT){
 			registered_frame = last_frame;
 			vCorr = last_corr;
 			if (DEBUG)
 				vCorr_scales = scales;
 			nFeatures = vCorr.size();
+			isInitialized = true;
+			pthread_rwlock_unlock(&feature_lock);
+
 			feature0.resize(nFeatures);
 			for (int iF = 0; iF < nFeatures; iF++)
 	  		{
@@ -207,17 +209,20 @@ void* Optical_Flow(void* param) {
 	  		}
 			
 			feature1 = feature0;
-			isInitialized = true;
+			
 /*
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/match_%4d_%4d.bmp", frameID, iFile);
 */			
 			
-			img_prev = current_img.clone();
-			current_img = img_curr.clone();
+			img_prev = img_curr.clone();
 			//img_curr.convertTo(current_img, CV_32FC1);
+
+			pthread_rwlock_rdlock(&image_lock);
+			new_feature_flag = new_frame_flag;
+			pthread_rwlock_unlock(&image_lock);
 			
-			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
+			cout << "    <Tracking> Got frame: " << registered_frame << endl;
 /*			
 			//debug
 			cv::Mat img_debug = img_prev.clone();
@@ -509,6 +514,10 @@ int main ( int argc, char * * argv )
 	vector<vector<int> > vvDesc;
 	LoadStructureData(structureFile, vID, vX, vY, vZ);
 	LoadDescriptorData(descriptorFile, vvDesc);
+
+	vector<Correspondence2D3D> vCorr_temp;
+	SaveCorrespondence2D3DData(usedSIFTFile, vCorr_temp, 0, FILESAVE_WRITE_MODE);
+	SaveCorrespondence2D3DData(usedSIFTFile_ransac, vCorr_temp, 0, FILESAVE_WRITE_MODE);
 		
 	//Retrieve 3D descriptor
 	vector<vector<int> > vvDesc_temp;
@@ -579,7 +588,6 @@ int main ( int argc, char * * argv )
 			continue;
 		}
 		currentID = frameID;
-
 		current_img.convertTo(img, CV_32FC1);
 		pthread_rwlock_unlock(&image_lock);
 
