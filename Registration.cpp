@@ -51,7 +51,6 @@ int last_frame = -1;
 cv::Mat current_img;
 vector<Correspondence2D3D> last_corr;
 vector<double> scales;
-bool new_frame_flag = false;
 cv::Scalar color_red = cv::Scalar(0, 0, 255);
 cv::Scalar color_green = cv::Scalar(0, 255, 0);
 cv::Scalar color_blue = cv::Scalar(255, 0, 0);
@@ -61,6 +60,7 @@ cv::Scalar color_yellow = cv::Scalar(255, 255, 0);
 pthread_rwlock_t image_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_rwlock_t feature_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t tracking_thread;
+
 
 void Undistortion(double omega, double DistCtrX, double DistCtrY, vector<double> &vx,  vector<double> &vy)
 {
@@ -190,17 +190,15 @@ void* Optical_Flow(void* param) {
 		current_img = img_curr.clone();
 		pthread_rwlock_unlock(&image_lock);
 
-		cout << "  <flow> Load file " << iFile << endl;
 		pthread_rwlock_rdlock(&feature_lock);
-		if (/*last_frame==frameID*/isSIFT){
+		cout << "  <flow> Load file " << iFile << endl;
+		if (/*last_frame==frameID*/isSIFT){	
+			new_feature_flag = true;
 			registered_frame = last_frame;
 			vCorr = last_corr;
 			if (DEBUG)
 				vCorr_scales = scales;
 			nFeatures = vCorr.size();
-			isInitialized = true;
-			pthread_rwlock_unlock(&feature_lock);
-
 			feature0.resize(nFeatures);
 			for (int iF = 0; iF < nFeatures; iF++)
 	  		{
@@ -209,7 +207,7 @@ void* Optical_Flow(void* param) {
 	  		}
 			
 			feature1 = feature0;
-			
+			isInitialized = true;
 /*
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/match_%4d_%4d.bmp", frameID, iFile);
@@ -217,12 +215,8 @@ void* Optical_Flow(void* param) {
 			
 			img_prev = img_curr.clone();
 			//img_curr.convertTo(current_img, CV_32FC1);
-
-			pthread_rwlock_rdlock(&image_lock);
-			new_feature_flag = new_frame_flag;
-			pthread_rwlock_unlock(&image_lock);
 			
-			cout << "    <Tracking> Got frame: " << registered_frame << endl;
+			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
 /*			
 			//debug
 			cv::Mat img_debug = img_prev.clone();
@@ -275,7 +269,7 @@ void* Optical_Flow(void* param) {
 		
 		if (false) {
 			char output_file_name[100];
-			sprintf(output_file_name, "./result/ferture_before_flow_%0d.txt", iFile);
+			sprintf(output_file_name, "./result/feature_before_flow_%0d.txt", iFile);
 			ofstream fout(output_file_name);
 			for (int i = 0; i < feature0.size(); i++)
 			{
@@ -290,10 +284,10 @@ void* Optical_Flow(void* param) {
 					 optical_flow_window, 15,
 					 optical_flow_termination_criteria,
 					 cv::OPTFLOW_USE_INITIAL_FLOW);
-		if (DEBUG) {
+		if (false) {
 			//static_cast<unsigned>(optical_flow_found_feature);
 			char output_file_name[100];
-			sprintf(output_file_name, "./result/ferture_after_flow_%0d.txt", iFile);
+			sprintf(output_file_name, "./result/feature_after_flow_%0d.txt", iFile);
 			ofstream fout(output_file_name);
 			for (int i = 0; i < optical_flow_found_feature.size(); i++)
 			{
@@ -332,10 +326,6 @@ void* Optical_Flow(void* param) {
 			// plot flow tracking
 			if (DEBUG) {
 				if (new_feature_flag) {
-					pthread_rwlock_wrlock(&image_lock);
-					new_frame_flag = false;
-					pthread_rwlock_unlock(&image_lock);
-					
 					if ((int)optical_flow_found_feature[i] == 1)
 						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_green, 2);
 					else
@@ -514,10 +504,6 @@ int main ( int argc, char * * argv )
 	vector<vector<int> > vvDesc;
 	LoadStructureData(structureFile, vID, vX, vY, vZ);
 	LoadDescriptorData(descriptorFile, vvDesc);
-
-	vector<Correspondence2D3D> vCorr_temp;
-	SaveCorrespondence2D3DData(usedSIFTFile, vCorr_temp, 0, FILESAVE_WRITE_MODE);
-	SaveCorrespondence2D3DData(usedSIFTFile_ransac, vCorr_temp, 0, FILESAVE_WRITE_MODE);
 		
 	//Retrieve 3D descriptor
 	vector<vector<int> > vvDesc_temp;
@@ -588,6 +574,7 @@ int main ( int argc, char * * argv )
 			continue;
 		}
 		currentID = frameID;
+
 		current_img.convertTo(img, CV_32FC1);
 		pthread_rwlock_unlock(&image_lock);
 
@@ -925,7 +912,6 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		vFrame[currentID] = currentID;
 
 		pthread_rwlock_wrlock(&feature_lock);
-		new_frame_flag = true;
 		isSIFT = true;
 		pthread_rwlock_unlock(&feature_lock);
 	}
