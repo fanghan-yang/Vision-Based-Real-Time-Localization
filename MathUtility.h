@@ -12,6 +12,7 @@
 #define QW_ZERO 1e-6
 using namespace std;
 
+void Quaternion2Rotation1(CvMat *q, CvMat *R);
 void GetNormalVector(double ux, double uy, double uz, double vx, double vy, double vz, double &n1, double &n2, double &n3);
 void Normalization(CvMat *x0, CvMat *x1, CvMat *T);
 void Normalization3D(CvMat *x0, CvMat *x1, CvMat *T);
