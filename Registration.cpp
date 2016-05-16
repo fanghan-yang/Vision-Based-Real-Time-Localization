@@ -61,7 +61,97 @@ pthread_rwlock_t image_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_rwlock_t feature_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t tracking_thread;
 
+void Undistortion(CvMat *K, CvMat *invK, double k1, vector<double> &vx,  vector<double> &vy)
+{
+    double ik11 = cvGetReal2D(invK, 0, 0);  double ik12 = cvGetReal2D(invK, 0, 1);  double ik13 = cvGetReal2D(invK, 0, 2);
+    double ik21 = cvGetReal2D(invK, 1, 0);  double ik22 = cvGetReal2D(invK, 1, 1);  double ik23 = cvGetReal2D(invK, 1, 2);
+    double ik31 = cvGetReal2D(invK, 2, 0);  double ik32 = cvGetReal2D(invK, 2, 1);  double ik33 = cvGetReal2D(invK, 2, 2);
+    double k11 = cvGetReal2D(K, 0, 0);  double k12 = cvGetReal2D(K, 0, 1);  double k13 = cvGetReal2D(K, 0, 2);
+    double k21 = cvGetReal2D(K, 1, 0);  double k22 = cvGetReal2D(K, 1, 1);  double k23 = cvGetReal2D(K, 1, 2);
+    double k31 = cvGetReal2D(K, 2, 0);  double k32 = cvGetReal2D(K, 2, 1);  double k33 = cvGetReal2D(K, 2, 2);
 
+    for (int iPoint = 0; iPoint < vx.size(); iPoint++)
+    {
+        double x = vx[iPoint];
+        double y = vy[iPoint];
+        double xc = k13;
+        double yc = k23;
+        double nzc = (ik31*xc+ik32*yc+ik33);
+        double nxc = (ik11*xc+ik12*yc+ik13)/nzc;
+        double nyc = (ik21*xc+ik22*yc+ik23)/nzc;
+ 
+        double nz = (ik31*x+ik32*y+ik33);
+        double nx = (ik11*x+ik12*y+ik13)/nz;
+        double ny = (ik21*x+ik22*y+ik23)/nz;
+ 
+        double r_d = sqrt((nx-nxc)*(nx-nxc)+(ny-nyc)*(ny-nyc));
+        //r_d = 0.01;
+ 
+        double c = 1/k1;
+        double d = -c*r_d;
+ 
+        double Q = c/3;
+        double R = -d/2;
+ 
+        double Delta = Q*Q*Q + R*R;
+        double r_u, r_u_1, r_u_2, r_u_3;
+        if (Delta >= 0)
+        {
+            double RDelta = R + sqrt(Delta);
+    double signedRDelta = RDelta;
+    if (RDelta < 0)
+       signedRDelta = -RDelta;
+
+            signedRDelta = pow(signedRDelta, 1.0/3);
+    if (RDelta < 0)
+       RDelta = -signedRDelta;
+            r_u = RDelta + Q/RDelta;
+//cout << Delta << " " << R << " " << RDelta << " " << Q << endl;
+        }
+        else
+        {
+            //double S = sqrt(R*R-Delta);
+            //S = pow(S, 1.0/3);
+            //double T = 1.0/3*atan(sqrt(-Delta)/R);
+            //r_u = -S * cos(T) + S*sqrt(3.0)*sin(T);
+        Q = -Q;
+        double S = sqrt(Q);
+        double T = acos(R/S/Q);
+        r_u_1 = 2*S*cos(T/3);
+        r_u_2 = 2*S*cos((T+2*M_PI)/3);
+        r_u_3 = 2*S*cos((T-2*M_PI)/3);
+//cout << "T " << T << " " << r_u_1 << " " << r_u_2 << " " << r_u_3 << endl; 
+        
+//        if (abs(r_u_1-r_d)<abs(r_u_2-r_d) && abs(r_u_1-r_d)<abs(r_u_3-r_d) )
+//        r_u = r_u_1;
+//        else if (abs(r_u_2-r_d)<abs(r_u_3-r_d))
+//        r_u = r_u_2;
+//        else
+        r_u = r_u_3;
+        }
+ 
+        //double r_d1 = r_u * (1+k1*r_u*r_u);
+        //double r_d1 = r_u_1 * (1+k1*r_u_1*r_u_1);
+        //double r_d2 = r_u_2 * (1+k1*r_u_2*r_u_2);
+        //double r_d3 = r_u_3 * (1+k1*r_u_3*r_u_3);
+ 
+        nx = nxc + abs(r_u)/r_d * (nx - nxc);
+        ny = nyc + abs(r_u)/r_d * (ny - nyc);
+
+        //cout << Delta << " "<< r_d << " " << r_d1 << " " << r_u_1 << " " << r_d2 << " " << r_u_2 << " " << r_d3 << " " << r_u_3 << endl;
+        //cout << Delta << " "<< r_d << " " << r_d1 << " " << r_u << endl;
+        double z = (k31*nx+k32*ny+k33);
+        x = (k11*nx+k12*ny+k13)/z;
+        y = (k21*nx+k22*ny+k23)/z;
+ 
+        vx[iPoint] = x;
+        vy[iPoint] = y;
+ 
+        //cout << x << " " << y << " " << z << endl;
+    }
+}
+
+/*
 void Undistortion(double omega, double DistCtrX, double DistCtrY, vector<double> &vx,  vector<double> &vy)
 {
   if (abs(omega) < 1e-6)
@@ -78,6 +168,7 @@ void Undistortion(double omega, double DistCtrX, double DistCtrY, vector<double>
 		vy[iPoint] = y_u+DistCtrY;
 	}
 }
+*/
 
 void Undistortion_Radial(CvMat* K, CvMat* invK, double k1, vector<double> &vx,  vector<double> &vy)
 {
@@ -379,7 +470,20 @@ void* Optical_Flow(void* param) {
 //		EPNP_ExtrinsicCameraParamEstimation(cX, cx, K, P);	
 
 		vector<int> vInlier;
-		DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 5, 50, vInlier);	
+		DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 10, 50, vInlier);	
+
+		if (false) {
+			//static_cast<unsigned>(optical_flow_found_feature);
+			char output_file_name[100];
+			sprintf(output_file_name, "./result/cX_%0d.txt", iFile);
+			ofstream fout(output_file_name);
+			for (int i = 0; i < num_tracked; i++)
+			{
+				fout << cvGet2D(cX, i, 0).val[0] << " " << cvGet2D(cX, i, 1).val[0] << " " << cvGet2D(cX, i, 2).val[0] << endl;
+			}
+			fout.close();
+		}
+
 		if (vInlier.size() < 20)
 		{
 			cout << "    <Tracking> No ePNP solution " << vInlier.size() << endl;
@@ -805,9 +909,8 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		
 		CvMat *P = cvCreateMat(3,4,CV_32FC1);
 		vector<int> vInlier;
-		if (DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 5, 100, vInlier) < 20)
+		if (DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 10, 100, vInlier) < 20)
 		{
-
 			if (DEBUG) {
 				char output_file_name[100];
 				sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
