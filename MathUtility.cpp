@@ -4,6 +4,30 @@
 #include <algorithm>
 using namespace std;
 
+void Quaternion2Rotation1(CvMat *q, CvMat *R)
+{
+	//QuaternionNormalization(q);
+	double qw = cvGetReal2D(q, 0, 0);
+	double qx = cvGetReal2D(q, 1, 0);
+	double qy = cvGetReal2D(q, 2, 0);
+	double qz = cvGetReal2D(q, 3, 0);
+	cvSetReal2D(R, 0, 0, 1.0-2*qy*qy-2*qz*qz);	cvSetReal2D(R, 0, 1, 2*qx*qy-2*qz*qw);		cvSetReal2D(R, 0, 2, 2*qx*qz+2*qy*qw);
+	cvSetReal2D(R, 1, 0, 2*qx*qy+2*qz*qw);		cvSetReal2D(R, 1, 1, 1.0-2*qx*qx-2*qz*qz);	cvSetReal2D(R, 1, 2, 2*qz*qy-2*qx*qw);
+	cvSetReal2D(R, 2, 0, 2*qx*qz-2*qy*qw);		cvSetReal2D(R, 2, 1, 2*qy*qz+2*qx*qw);		cvSetReal2D(R, 2, 2, 1.0-2*qx*qx-2*qy*qy);
+	CvMat *U = cvCreateMat(3,3,CV_32FC1);
+	CvMat *D = cvCreateMat(3,3,CV_32FC1);
+	CvMat *V = cvCreateMat(3,3,CV_32FC1);
+	CvMat *Vt = cvCreateMat(3,3,CV_32FC1);
+	
+	cvSVD(R, D, U, V);
+	cvTranspose(V, Vt);
+	cvMatMul(U, Vt, R);
+	cvReleaseMat(&U);
+	cvReleaseMat(&D);
+	cvReleaseMat(&V);
+	cvReleaseMat(&Vt);
+}
+
 void Normalization(CvMat *x0, CvMat *x1, CvMat *T)
 {
 	double xMean=0, yMean=0, xVar=0, yVar=0;
