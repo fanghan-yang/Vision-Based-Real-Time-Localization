@@ -17,6 +17,7 @@ using namespace std;
 #define POINT_AT_INFINITY_ZERO 1e-2
 #define PI 3.14159265
 
+void AbsoluteCameraPoseRefinement_Jacobian(CvMat *X, CvMat *x, CvMat *P, CvMat *K, int nIters);
 int EPNP_ExtrinsicCameraParamEstimation(CvMat *X, CvMat *x, CvMat *K, CvMat *P);
 void BilinearCameraPoseEstimation(vector<Feature> vFeature, int initialFrame1, int initialFrame2, double ransacThreshold, int ransacMaxIter, CvMat *K, CvMat &P, CvMat &X, vector<int> &visibleStructureID);
 void BilinearCameraPoseEstimation_OPENCV(vector<Feature> vFeature, int initialFrame1, int initialFrame2, double ransacThreshold, int ransacMaxIter, CvMat *K, CvMat &P, CvMat &X, vector<int> &visibleStructureID);
