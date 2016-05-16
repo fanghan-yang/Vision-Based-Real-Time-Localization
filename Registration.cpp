@@ -471,6 +471,29 @@ void* Optical_Flow(void* param) {
 
 		vector<int> vInlier;
 		DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 10, 50, vInlier);	
+		
+		//////////////////////////////////////////
+		//Refinement
+		CvMat *cX_ransac = cvCreateMat(vInlier.size(), 3, CV_32FC1);
+		CvMat *cx_ransac = cvCreateMat(vInlier.size(), 2, CV_32FC1);
+
+		for (int iPoint = 0; iPoint < vInlier.size(); iPoint++)
+		{
+			cvSetReal2D(cX_ransac, iPoint, 0, vCorr[vInlier[iPoint]].x);
+			cvSetReal2D(cX_ransac, iPoint, 1, vCorr[vInlier[iPoint]].y);
+			cvSetReal2D(cX_ransac, iPoint, 2, vCorr[vInlier[iPoint]].z);
+
+			cvSetReal2D(cx_ransac, iPoint, 0, vCorr[vInlier[iPoint]].u);
+			cvSetReal2D(cx_ransac, iPoint, 1, vCorr[vInlier[iPoint]].v);
+		}
+		
+		// if (vP.size() > 0)
+			// P = cvCloneMat(vP[vP.size()-1]);
+
+		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 20);
+		cvReleaseMat(&cX_ransac);
+		cvReleaseMat(&cx_ransac);
+		//////////////////////////////////////////
 
 		if (false) {
 			//static_cast<unsigned>(optical_flow_found_feature);
@@ -956,6 +979,33 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		//cout<<"<Matching>"<<cvGetReal2D(P,1,0)<<" "<<cvGetReal2D(P,1,1)<<" "<<cvGetReal2D(P,1,2)<<endl;
 		//cout<<"<Matching>"<<cvGetReal2D(P,2,0)<<" "<<cvGetReal2D(P,2,1)<<" "<<cvGetReal2D(P,2,2)<<endl;
 		//cout<<"<Matching>"<<cvGetReal2D(P,0,3)<<" "<<cvGetReal2D(P,1,3)<<" "<<cvGetReal2D(P,2,3)<<endl;
+		
+		
+		
+		//////////////////////////////////////////
+		//Refinement
+		CvMat *cX_ransac = cvCreateMat(vInlier.size(), 3, CV_32FC1);
+		CvMat *cx_ransac = cvCreateMat(vInlier.size(), 2, CV_32FC1);
+
+		for (int iPoint = 0; iPoint < vInlier.size(); iPoint++)
+		{
+			cvSetReal2D(cX_ransac, iPoint, 0, vCorr[vInlier[iPoint]].x);
+			cvSetReal2D(cX_ransac, iPoint, 1, vCorr[vInlier[iPoint]].y);
+			cvSetReal2D(cX_ransac, iPoint, 2, vCorr[vInlier[iPoint]].z);
+
+			cvSetReal2D(cx_ransac, iPoint, 0, vCorr[vInlier[iPoint]].u);
+			cvSetReal2D(cx_ransac, iPoint, 1, vCorr[vInlier[iPoint]].v);
+		}
+		
+		// if (vP.size() > 0)
+			// P = cvCloneMat(vP[vP.size()-1]);
+
+		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 40);
+		cvReleaseMat(&cX_ransac);
+		cvReleaseMat(&cx_ransac);
+		//////////////////////////////////////////
+		
+		
 		
 		//restore inliner
 		pthread_rwlock_wrlock(&feature_lock);
