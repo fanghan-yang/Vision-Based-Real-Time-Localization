@@ -54,7 +54,7 @@ vector<double> scales;
 cv::Scalar color_red = cv::Scalar(0, 0, 255);
 cv::Scalar color_green = cv::Scalar(0, 255, 0);
 cv::Scalar color_blue = cv::Scalar(255, 0, 0);
-cv::Scalar color_yellow = cv::Scalar(255, 255, 0);
+cv::Scalar color_yellow = cv::Scalar(0, 255, 255);
 
 // pthread
 pthread_rwlock_t image_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -416,6 +416,14 @@ void* Optical_Flow(void* param) {
 
 			// plot flow tracking
 			if (DEBUG) {
+				string myStr;          //The string
+				ostringstream myTemp;  //temp as in temporary
+				myTemp << iFile;
+				myStr = myTemp.str();
+				cv::Point textPos;
+				textPos.x = 35;
+				textPos.y = 35;
+				putText(img_debug, myStr, textPos, 2, 0.8, color_red);
 				if (new_feature_flag) {
 					if ((int)optical_flow_found_feature[i] == 1)
 						circle(img_debug, feature1[i], 1.4 * vCorr_scales[i], color_green, 2);
@@ -490,7 +498,10 @@ void* Optical_Flow(void* param) {
 		// if (vP.size() > 0)
 			// P = cvCloneMat(vP[vP.size()-1]);
 
-		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 20);
+		gettimeofday(&t1,NULL);
+		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 40);
+		gettimeofday(&t2,NULL);
+		printTime("    <Tracking> Refinement time: ", t1, t2);
 		cvReleaseMat(&cX_ransac);
 		cvReleaseMat(&cx_ransac);
 		//////////////////////////////////////////
@@ -874,7 +885,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		printTime("<Matching> Matching time: ",t1,t2);
 		
 		// plot matching result
-		if (DEBUG) {
+		if (false) {
 			cvtColor(img, img_debug, CV_GRAY2RGB);
 			for (int i = 0; i < vSift_desc.size(); i++) {
 				cv::Point2f point;
@@ -999,8 +1010,11 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		
 		// if (vP.size() > 0)
 			// P = cvCloneMat(vP[vP.size()-1]);
-
-		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 40);
+		
+		gettimeofday(&t1,NULL);
+		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 80);
+		gettimeofday(&t2,NULL);
+		printTime("<Matching> Refinement time: ", t1, t2);
 		cvReleaseMat(&cX_ransac);
 		cvReleaseMat(&cx_ransac);
 		//////////////////////////////////////////
@@ -1028,7 +1042,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		printTime("<Matching> Frame time: ",t_prev,t_curr);
 
 		// plot inliers
-		if (DEBUG) {
+		if (false) {
 			pthread_rwlock_rdlock(&feature_lock);
 			vector<Correspondence2D3D> corr_temp = last_corr;
 			pthread_rwlock_unlock(&feature_lock);
