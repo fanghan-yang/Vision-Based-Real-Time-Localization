@@ -2,6 +2,179 @@
 #include <assert.h>
 using namespace std;
 
+void AbsoluteCameraPoseRefinement_Jacobian(CvMat *X, CvMat *x, CvMat *P, CvMat *K, int nIters)
+{
+	//PrintAlgorithm("Absolute Camera Pose Refinement Jacobian");
+	double f = cvGetReal2D(K, 0, 0);
+	double px = cvGetReal2D(K, 0, 2);
+	double py = cvGetReal2D(K, 1, 2);
+	
+	CvMat *q = cvCreateMat(4,1,CV_32FC1);
+	CvMat *R = cvCreateMat(3,3,CV_32FC1);
+	CvMat *t = cvCreateMat(3,1,CV_32FC1);
+	CvMat *invK = cvCreateMat(3,3,CV_32FC1);
+	CvMat *invR = cvCreateMat(3,3,CV_32FC1);
+	GetSubMatColwise(P, 0, 2, R);
+	GetSubMatColwise(P, 3, 3, t);
+	cvInvert(K, invK);
+	cvMatMul(invK, R, R);
+	cvInvert(R, invR);
+	cvMatMul(invK, t, t);
+	cvMatMul(invR, t, t);
+	ScalarMul(t, -1, t);
+	
+	CvMat *uvw = cvCreateMat(3,1,CV_32FC1);
+	CvMat *X_ = cvCreateMat(4,1,CV_32FC1);
+	CvMat *fR = cvCreateMat(2, 9, CV_32FC1);
+	CvMat *Rq = cvCreateMat(9, 4, CV_32FC1);
+	
+	CvMat *fq_i = cvCreateMat(2, 4, CV_32FC1);
+	CvMat *fc = cvCreateMat(2*x->rows,3,CV_32FC1);
+	CvMat *fq = cvCreateMat(2*x->rows, 4, CV_32FC1);
+	CvMat *J = cvCreateMat(2*x->rows, 7, CV_32FC1);
+	CvMat *df = cvCreateMat(2*x->rows, 1, CV_32FC1);
+	CvMat *dx = cvCreateMat(7, 1, CV_32FC1);
+	
+	
+	//double p_err = 1e+5;
+	for (int iter = 0; iter < nIters; iter++)
+	{
+		Rotation2Quaternion(R, q);
+		double r11 = cvGetReal2D(R, 0, 0);
+		double r12 = cvGetReal2D(R, 0, 1);
+		double r13 = cvGetReal2D(R, 0, 2);
+		
+		double r21 = cvGetReal2D(R, 1, 0);
+		double r22 = cvGetReal2D(R, 1, 1);
+		double r23 = cvGetReal2D(R, 1, 2);
+		
+		double r31 = cvGetReal2D(R, 2, 0);
+		double r32 = cvGetReal2D(R, 2, 1);
+		double r33 = cvGetReal2D(R, 2, 2);		
+		
+		double uc1 = -(f*r11+px*r31);
+		double uc2 = -(f*r12+px*r32);
+		double uc3 = -(f*r13+px*r33);
+		
+		double vc1 = -(f*r21+py*r31);
+		double vc2 = -(f*r22+py*r32);
+		double vc3 = -(f*r23+py*r33);
+		
+		double wc1 = -r31;
+		double wc2 = -r32;
+		double wc3 = -r33;		
+		
+		double qw = cvGetReal2D(q, 0, 0);
+		double qx = cvGetReal2D(q, 1, 0);
+		double qy = cvGetReal2D(q, 2, 0);
+		double qz = cvGetReal2D(q, 3, 0);
+		cvSetZero(Rq);
+		cvSetReal2D(Rq, 0, 0, 0);		cvSetReal2D(Rq, 0, 1, -4*qy);	cvSetReal2D(Rq, 0, 2, -4*qz);	cvSetReal2D(Rq, 0, 3, 0);
+		cvSetReal2D(Rq, 1, 0, 2*qy);	cvSetReal2D(Rq, 1, 1, 2*qx);	cvSetReal2D(Rq, 1, 2, -2*qw);	cvSetReal2D(Rq, 1, 3, -2*qz);
+		cvSetReal2D(Rq, 2, 0, 2*qz);	cvSetReal2D(Rq, 2, 1, 2*qw);	cvSetReal2D(Rq, 2, 2, 2*qx);	cvSetReal2D(Rq, 2, 3, 2*qy);
+		cvSetReal2D(Rq, 3, 0, 2*qy);	cvSetReal2D(Rq, 3, 1, 2*qx);	cvSetReal2D(Rq, 3, 2, 2*qw);	cvSetReal2D(Rq, 3, 3, 2*qz);
+		cvSetReal2D(Rq, 4, 0, -4*qx);	cvSetReal2D(Rq, 4, 1, 0);		cvSetReal2D(Rq, 4, 2, -4*qz);	cvSetReal2D(Rq, 4, 3, 0);
+		cvSetReal2D(Rq, 5, 0, -2*qw);	cvSetReal2D(Rq, 5, 1, 2*qz);	cvSetReal2D(Rq, 5, 2, 2*qy);	cvSetReal2D(Rq, 5, 3, -2*qx);
+		cvSetReal2D(Rq, 6, 0, 2*qz);	cvSetReal2D(Rq, 6, 1, -2*qw);	cvSetReal2D(Rq, 6, 2, 2*qx);	cvSetReal2D(Rq, 6, 3, -2*qy);
+		cvSetReal2D(Rq, 7, 0, 2*qw);	cvSetReal2D(Rq, 7, 1, 2*qz);	cvSetReal2D(Rq, 7, 2, 2*qy);	cvSetReal2D(Rq, 7, 3, 2*qx);
+		cvSetReal2D(Rq, 8, 0, -4*qx);	cvSetReal2D(Rq, 8, 1, -4*qy);	cvSetReal2D(Rq, 8, 2, 0);		cvSetReal2D(Rq, 8, 3, 0);
+		
+		double err = 0;
+		for (int i = 0; i < x->rows; i++)
+		{
+			cvSetReal2D(X_, 0, 0, cvGetReal2D(X, i, 0));
+			cvSetReal2D(X_, 1, 0, cvGetReal2D(X, i, 1));
+			cvSetReal2D(X_, 2, 0, cvGetReal2D(X, i, 2));
+			cvSetReal2D(X_, 3, 0, 1);
+			
+			cvMatMul(P, X_, uvw);
+			double u = cvGetReal2D(uvw, 0, 0);
+			double v = cvGetReal2D(uvw, 1, 0);
+			double w = cvGetReal2D(uvw, 2, 0);
+			
+			//PrintMat(uvw, "uvw");
+			double w_2 = w*w;
+			cvSetReal2D(fc, i*2, 0, (w*uc1-u*wc1)/w_2);
+			cvSetReal2D(fc, i*2, 1, (w*uc2-u*wc2)/w_2);
+			cvSetReal2D(fc, i*2, 2, (w*uc3-u*wc3)/w_2);
+			
+			cvSetReal2D(fc, i*2+1, 0, (w*vc1-v*wc1)/w_2);
+			cvSetReal2D(fc, i*2+1, 1, (w*vc2-v*wc2)/w_2);
+			cvSetReal2D(fc, i*2+1, 2, (w*vc3-v*wc3)/w_2);
+			
+			//PrintMat(fc, "fc");
+			
+			double dX1 = cvGetReal2D(X, i, 0)-cvGetReal2D(t, 0, 0);
+			double dX2 = cvGetReal2D(X, i, 1)-cvGetReal2D(t, 1, 0);
+			double dX3 = cvGetReal2D(X, i, 2)-cvGetReal2D(t, 2, 0);
+			
+			double uR11 = f*dX1;	double uR12 = f*dX2;	double uR13 = f*dX3;
+			double uR21 = 0;		double uR22 = 0; 		double uR23 = 0;
+			double uR31 = px*dX1;	double uR32 = px*dX2;	double uR33 = px*dX3;
+			
+			double vR11 = 0;		double vR12 = 0; 		double vR13 = 0;
+			double vR21 = f*dX1;	double vR22 = f*dX2;	double vR23 = f*dX3;
+			double vR31 = py*dX1;	double vR32 = py*dX2;	double vR33 = py*dX3;
+			
+			double wR11 = 0; 		double wR12 = 0;		double wR13 = 0;
+			double wR21 = 0;		double wR22 = 0;		double wR23 = 0;
+			double wR31 = dX1;		double wR32 = dX2;		double wR33 = dX3;
+			
+			cvSetReal2D(fR, 0, 0, (w*uR11-u*wR11)/w_2);		cvSetReal2D(fR, 0, 1, (w*uR12-u*wR12)/w_2);		cvSetReal2D(fR, 0, 2, (w*uR13-u*wR13)/w_2);
+			cvSetReal2D(fR, 0, 3, (w*uR21-u*wR21)/w_2);		cvSetReal2D(fR, 0, 4, (w*uR22-u*wR22)/w_2);		cvSetReal2D(fR, 0, 5, (w*uR23-u*wR23)/w_2);
+			cvSetReal2D(fR, 0, 6, (w*uR31-u*wR31)/w_2);		cvSetReal2D(fR, 0, 7, (w*uR32-u*wR32)/w_2);		cvSetReal2D(fR, 0, 8, (w*uR33-u*wR33)/w_2);
+			
+			cvSetReal2D(fR, 1, 0, (w*vR11-v*wR11)/w_2);		cvSetReal2D(fR, 1, 1, (w*vR12-v*wR12)/w_2);		cvSetReal2D(fR, 1, 2, (w*vR13-v*wR13)/w_2);
+			cvSetReal2D(fR, 1, 3, (w*vR21-v*wR21)/w_2);		cvSetReal2D(fR, 1, 4, (w*vR22-v*wR22)/w_2);		cvSetReal2D(fR, 1, 5, (w*vR23-v*wR23)/w_2);
+			cvSetReal2D(fR, 1, 6, (w*vR31-v*wR31)/w_2);		cvSetReal2D(fR, 1, 7, (w*vR32-v*wR32)/w_2);		cvSetReal2D(fR, 1, 8, (w*vR33-v*wR33)/w_2);
+
+			
+			cvMatMul(fR, Rq, fq_i);
+			SetSubMat(fq, 2*i, 0, fq_i);	
+
+			cvSetReal2D(df, 2*i, 0, cvGetReal2D(x, i, 0) - u/w);
+			cvSetReal2D(df, 2*i+1, 0, cvGetReal2D(x, i, 1) - v/w);
+			
+			err += (cvGetReal2D(x, i, 0) - u/w)*(cvGetReal2D(x, i, 0) - u/w)+(cvGetReal2D(x, i, 1) - v/w)*(cvGetReal2D(x, i, 1) - v/w);
+		}
+
+		cvSetZero(J);
+		SetSubMat(J, 0, 0, fc);
+		SetSubMat(J, 0, 3, fq);		
+		
+		cvSolve(J, df, dx);
+
+		cvSetReal2D(t, 0, 0, cvGetReal2D(t, 0, 0)+0.03*cvGetReal2D(dx, 0, 0));
+		cvSetReal2D(t, 1, 0, cvGetReal2D(t, 1, 0)+0.03*cvGetReal2D(dx, 1, 0));
+		cvSetReal2D(t, 2, 0, cvGetReal2D(t, 2, 0)+0.03*cvGetReal2D(dx, 2, 0));
+		
+		cvSetReal2D(q, 0, 0, cvGetReal2D(q, 0, 0)+0.03*cvGetReal2D(dx, 6, 0));
+		cvSetReal2D(q, 1, 0, cvGetReal2D(q, 1, 0)+0.03*cvGetReal2D(dx, 3, 0));
+		cvSetReal2D(q, 2, 0, cvGetReal2D(q, 2, 0)+0.03*cvGetReal2D(dx, 4, 0));
+		cvSetReal2D(q, 3, 0, cvGetReal2D(q, 3, 0)+0.03*cvGetReal2D(dx, 5, 0));
+				
+		Quaternion2Rotation1(q, R);
+		
+		GetCameraMatrix(K, R, t, P);
+	}
+	cvReleaseMat(&dx);
+	cvReleaseMat(&df);
+	cvReleaseMat(&J);
+	cvReleaseMat(&fq);
+	cvReleaseMat(&fc);
+	cvReleaseMat(&fq_i);
+	cvReleaseMat(&uvw);
+	cvReleaseMat(&X_);
+	cvReleaseMat(&fR);
+	cvReleaseMat(&Rq);
+
+	cvReleaseMat(&R);
+	cvReleaseMat(&t);
+	cvReleaseMat(&q);
+	cvReleaseMat(&invK);
+	cvReleaseMat(&invR);
+}
+
 //void BilinearCameraPoseEstimation(vector<Feature> vFeature, int initialFrame1, int initialFrame2, double ransacThreshold, int ransacMaxIter, CvMat *K, CvMat &P, CvMat &X, vector<int> &visibleStructureID)
 //{
 //	PrintAlgorithm("Bilinear Camera Pose Estimation");
