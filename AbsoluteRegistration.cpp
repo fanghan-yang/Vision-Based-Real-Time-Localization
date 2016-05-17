@@ -27,9 +27,6 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#define DLT_RANSAC_THRESHOLD 2
-#define DLT_RANSAC_MAX_ITER 100
-
 #define SCALAR 5
 #define DEBUG_FLOW 1
 #define DEBUG_KNN 0
