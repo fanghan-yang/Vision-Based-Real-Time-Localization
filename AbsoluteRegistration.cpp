@@ -370,7 +370,7 @@ void* Optical_Flow(void* param) {
 			
 			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
 
-			if (false) {
+			if (DEBUG_FLOW) {
 				//cv::Mat im_d = img_prev.clone();
 				for (int i = 0; i < vCorr.size(); i++)
 				{
@@ -694,10 +694,10 @@ void* Optical_Flow(void* param) {
 			cvReleaseMat(&R);
 
 			char output_file_name[100];
-			sprintf(output_file_name, "./result/flow_image_%03d.jpg", iFile);
+			sprintf(output_file_name, "./result/flow_image_%0d.jpg", iFile);
 			imwrite(output_file_name, img_debug);
 			
-			if (false) {
+			if (DEBUG_FLOW) {
 				char temp[1000];
 				sprintf(temp, "./result/flow%04d.jpg", file_id);
 				file_id++;
@@ -1135,8 +1135,6 @@ int main ( int argc, char * * argv )
 
 		//////////////////////////////////////////
 		
-		
-		
 		//restore inliner
 		pthread_rwlock_wrlock(&image_lock);
 		detection_img = img_temp.clone();
@@ -1268,8 +1266,6 @@ int main ( int argc, char * * argv )
 			cvReleaseMat(&C);
 			cvReleaseMat(&R);
 		}
-
-		
 
 		if (false) {
 			char output_file_name[100];
