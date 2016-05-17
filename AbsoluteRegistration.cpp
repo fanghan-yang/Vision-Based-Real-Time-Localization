@@ -31,9 +31,9 @@
 #define DLT_RANSAC_MAX_ITER 100
 
 #define SCALAR 5
-#define DEBUG_FLOW 1
-#define DEBUG_KNN 1
-#define DEBUG_INLIER 1
+#define DEBUG_FLOW 0
+#define DEBUG_KNN 0
+#define DEBUG_INLIER 0
 
 #define FILE_PATH "./"
 #define INPUT_FOLDER "reconstruction/"
@@ -61,7 +61,6 @@ cv::Scalar color_yellow = cv::Scalar(0, 255, 255);
 
 // pthread
 pthread_rwlock_t image_lock = PTHREAD_RWLOCK_INITIALIZER;
-pthread_rwlock_t feature_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t tracking_thread;
 
 void Undistortion(CvMat *K, CvMat *invK, double k1, vector<double> &vx,  vector<double> &vy)
@@ -153,25 +152,6 @@ void Undistortion(CvMat *K, CvMat *invK, double k1, vector<double> &vx,  vector<
         //cout << x << " " << y << " " << z << endl;
     }
 }
-
-/*
-void Undistortion(double omega, double DistCtrX, double DistCtrY, vector<double> &vx,  vector<double> &vy)
-{
-  if (abs(omega) < 1e-6)
-    return;
-	for (int iPoint = 0; iPoint < vx.size(); iPoint++)
-	{
-		double x = vx[iPoint]-DistCtrX;
-		double y = vy[iPoint]-DistCtrY;
-		double r_d = sqrt(x*x+y*y);
-		double r_u = tan(r_d*omega)/2/tan(omega/2); 
-		double x_u = r_u/r_d*x;
-		double y_u = r_u/r_d*y;
-		vx[iPoint] = x_u+DistCtrX;
-		vy[iPoint] = y_u+DistCtrY;
-	}
-}
-*/
 
 void Undistortion_Radial(CvMat* K, CvMat* invK, double k1, vector<double> &vx,  vector<double> &vy)
 {
@@ -284,6 +264,45 @@ void printTime(string text, timeval t1, timeval t2){
 	cout<<text<<(sec*1000000+usec)/1000000.0<<"s"<<endl;
 }
 
+void UpdateCameraDataRealTime(string filename, CvMat * vP, int vFrame, CvMat *K, bool file_exist)
+{
+	ofstream fout;
+	if (file_exist) {
+		fout.open(filename.c_str(), ios_base::app);
+	} else {
+		fout.open(filename.c_str(), ios_base::out);
+	}
+
+	CvMat *R = cvCreateMat(3,3,CV_32FC1);
+	CvMat *t = cvCreateMat(3,1,CV_32FC1);
+	CvMat *invK = cvCreateMat(3,3,CV_32FC1);
+	cvInvert(K, invK);
+	CvMat *temp34 = cvCreateMat(3,4,CV_32FC1);
+	CvMat *temp33 = cvCreateMat(3,3,CV_32FC1);
+	CvMat *invR = cvCreateMat(3,3,CV_32FC1);
+
+	cvMatMul(invK, vP, temp34);
+	GetSubMatColwise(temp34, 0, 2, R);
+	GetSubMatColwise(temp34, 3, 3, t);
+	cvInvert(R, invR);
+	cvMatMul(invR, t, t);
+
+	fout << "0 " << vFrame << endl;
+	fout << -cvGetReal2D(t, 0, 0) << " " << -cvGetReal2D(t, 1, 0) << " " << -cvGetReal2D(t, 2, 0) << endl;
+	fout << cvGetReal2D(R, 0, 0) << " " << cvGetReal2D(R, 0, 1) << " " << cvGetReal2D(R, 0, 2) << endl;
+	fout << cvGetReal2D(R, 1, 0) << " " << cvGetReal2D(R, 1, 1) << " " << cvGetReal2D(R, 1, 2) << endl;
+	fout << cvGetReal2D(R, 2, 0) << " " << cvGetReal2D(R, 2, 1) << " " << cvGetReal2D(R, 2, 2) << endl;
+
+	cvReleaseMat(&R);
+	cvReleaseMat(&t);
+	cvReleaseMat(&invK);
+	cvReleaseMat(&temp33);
+	cvReleaseMat(&temp34);
+	cvReleaseMat(&invR);
+
+	fout.close();
+}
+
 void* Optical_Flow(void* param) {
 	cout << "Tracking Thread starts ..." << endl;
 	timeval t1, t2;
@@ -296,8 +315,8 @@ void* Optical_Flow(void* param) {
 	cout << vFilename.size() << " images." << endl;
 	int registered_frame = 0;
 	cv::Mat img_prev, img_curr, img_debug;
-	vector<Correspondence2D3D> vCorr, vCorr_p, vCorr_c;
-	vector<double> vCorr_scales, vCorr_scales_p, vCorr_scales_c;
+	vector<Correspondence2D3D> vCorr;
+	vector<double> vCorr_scales;
 
 	timeval t_prev, t_curr;
 	vector<cv::Point2f> feature0;
@@ -306,6 +325,7 @@ void* Optical_Flow(void* param) {
 	
 	bool isInitialized = false;
 	int file_id = 0;
+	bool file_exist = false;
 	for (int iFile = 0; iFile < vFilename.size(); iFile++)
 	{
 		bool new_feature_flag = false;
@@ -319,49 +339,6 @@ void* Optical_Flow(void* param) {
 		pthread_rwlock_rdlock(&image_lock);
 		bool isSIFT_loc = isSIFT;
 		pthread_rwlock_unlock(&image_lock);
-		/*if (isSIFT){	
-			new_feature_flag = true;
-			registered_frame = last_frame;
-			vCorr = last_corr;
-			//vCorr_c = last_corr;
-			//for (int i = 0; i < vCorr_p.size(); i++)
-			//{
-			//	vCorr.push_back(vCorr_p[i]);
-			//}
-			//cout << vCorr_c.size() << " " << vCorr_p.size() << " " << vCorr.size() << endl;
-			//vCorr_p = vCorr_c;
-			
-			
-			if (DEBUG_FLOW)
-			{
-				//vCorr_scales_c = scales;
-				vCorr_scales = scales;
-				//for (int i = 0; i < vCorr_scales_p.size(); i++)
-				//{
-				//	vCorr_scales.push_back(vCorr_scales_p[i]);
-				//}
-				//vCorr_scales_p = vCorr_scales_c;
-			}
-			
-			nFeatures = vCorr.size();
-			feature0.resize(nFeatures);
-			for (int iF = 0; iF < nFeatures; iF++)
-	  		{
-	  			feature0[iF].x = vCorr[iF].u;
-	  			feature0[iF].y = vCorr[iF].v;
-	  		}
-			
-			feature1 = feature0;
-			isInitialized = true;
-	
-			
-			//img_curr.convertTo(current_img, CV_32FC1);
-			
-			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
-			
-		}
-		pthread_rwlock_unlock(&feature_lock);
-		*/
 
 		if (isSIFT_loc)
 		{
@@ -372,32 +349,11 @@ void* Optical_Flow(void* param) {
 			vCorr = last_corr;
 			if (DEBUG_FLOW)
 			{
-				//vCorr_scales_c = scales;
 				vCorr_scales = scales;
-				//for (int i = 0; i < vCorr_scales_p.size(); i++)
-				//{
-				//	vCorr_scales.push_back(vCorr_scales_p[i]);
-				//}
-				//vCorr_scales_p = vCorr_scales_c;
 			}
 			pthread_rwlock_unlock(&image_lock);
 
-			new_feature_flag = true;
-			//pthread_rwlock_rdlock(&feature_lock);
-			
-			//vCorr = last_corr;
-			
-			//vCorr_c = last_corr;
-			//for (int i = 0; i < vCorr_p.size(); i++)
-			//{
-			//	vCorr.push_back(vCorr_p[i]);
-			//}
-			//cout << vCorr_c.size() << " " << vCorr_p.size() << " " << vCorr.size() << endl;
-			//vCorr_p = vCorr_c;
-			
-			
-
-			//pthread_rwlock_unlock(&feature_lock);			
+			new_feature_flag = true;		
 
 			nFeatures = vCorr.size();
 			feature0.resize(nFeatures);
@@ -408,34 +364,30 @@ void* Optical_Flow(void* param) {
 	  		}
 			
 			feature1 = feature0;
-			isInitialized = true;
-/*
-			char output_file_name[100];
-			sprintf(output_file_name, "./result/match_%4d_%4d.bmp", frameID, iFile);
-*/			
-			
+			isInitialized = true;			
 			
 			//img_curr.convertTo(current_img, CV_32FC1);
 			
 			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
 
-			//cv::Mat im_d = img_prev.clone();
-			for (int i = 0; i < vCorr.size(); i++)
-			{
-				cv::Point2f p1, p2;
-				p1.x = vCorr[i].u;
-				p1.y = vCorr[i].v;
-				//line(img_debug, feature1[i], p1, color_blue, 1);
-				circle(im_d, p1, 5, color_green, -1);	
-				if (i == 0)
-				cout << "optical: " << last_corr[i].u << " " << last_corr[i].v << endl;
-			}
+			if (flase) {
+				//cv::Mat im_d = img_prev.clone();
+				for (int i = 0; i < vCorr.size(); i++)
+				{
+					cv::Point2f p1, p2;
+					p1.x = vCorr[i].u;
+					p1.y = vCorr[i].v;
+					//line(img_debug, feature1[i], p1, color_blue, 1);
+					circle(im_d, p1, 5, color_green, -1);	
+					if (i == 0)
+					cout << "optical: " << last_corr[i].u << " " << last_corr[i].v << endl;
+				}
 			
-			char temp[1000];
-			sprintf(temp, "./result/first%04d.jpg", registered_frame);
-			cout << temp << endl;
-			//file_id++;
-			imwrite(temp, im_d);
+				char temp[1000];
+				sprintf(temp, "./result/first%04d.jpg", registered_frame);
+				cout << temp << endl;
+				imwrite(temp, im_d);
+			}
 		}
 
 		pthread_rwlock_wrlock(&image_lock);
@@ -475,18 +427,7 @@ void* Optical_Flow(void* param) {
 		}			
 		cout << "    <Tracking> Flow feature num: " << nFeatures << endl;
 		gettimeofday(&t1, NULL);
-		//img_next = current_img.clone();
-		
-		if (false) {
-			char output_file_name[100];
-			sprintf(output_file_name, "./result/feature_before_flow_%0d.txt", iFile);
-			ofstream fout(output_file_name);
-			for (int i = 0; i < feature0.size(); i++)
-			{
-				fout << "( " << feature0[i].x << " " << feature0[i].y << " ) ( " <<feature1[i].x << " " << feature1[i].y << " )" << endl;
-			}
-			fout.close();
-		}		
+		//img_next = current_img.clone();	
 		
 		cv::calcOpticalFlowPyrLK(img_prev, img_curr, feature0, feature1,
 					 optical_flow_found_feature, 
@@ -494,16 +435,6 @@ void* Optical_Flow(void* param) {
 					 optical_flow_window, 15,
 					 optical_flow_termination_criteria,
 					 cv::OPTFLOW_USE_INITIAL_FLOW);
-		if (false) {
-			char output_file_name[100];
-			sprintf(output_file_name, "./result/feature_after_flow_%0d.txt", iFile);
-			ofstream fout(output_file_name);
-			for (int i = 0; i < optical_flow_found_feature.size(); i++)
-			{
-				fout << (int)optical_flow_found_feature[i] << " ( " << feature1[i].x << " " << feature1[i].y << " ) error: " << optical_flow_feature_error[i] << endl;
-			}
-			fout.close();
-		}
 
 		if (DEBUG_FLOW) {
 			char output_file_name[100];
@@ -518,28 +449,16 @@ void* Optical_Flow(void* param) {
 		//img_prev = img_curr.clone();
 
 		vector<double> vx(feature1.size()),  vy(feature1.size());
-		//cout<<iFile<<endl;
-		//for (int i = 0; i < feature0.size(); i++)
-		//{
-		//	cout<<feature0[i].x<<" "<<feature0[i].y<<endl;
-		//}
 
 		// plot flow before undistortion
 		if (DEBUG_FLOW)
 			cvtColor(img_curr, img_debug, CV_GRAY2RGB);
 		vx.clear();
 		vy.clear();
-		cout << "a " << feature1.size() << " " << vCorr_p.size() << endl;
 		for (int i = 0; i < feature1.size(); i++)
 		{
 			vx.push_back(feature1[i].x);
 			vy.push_back(feature1[i].y);
-			
-			//if (i < vCorr_c.size())
-			//{
-			//	vCorr_p[i].u = feature1[i].x;
-			//	vCorr_p[i].v = feature1[i].y;
-			//}	
 
 			// plot flow tracking
 			if (DEBUG_FLOW) {
@@ -602,10 +521,7 @@ void* Optical_Flow(void* param) {
 		//for (int i = 0; i < vCorr.size(); i++)
 		//	vInlier.push_back(i);
 
-
-
 		PnP_Opencv(cX, cx, K, P, 5, 200, vInlier);
-		
 		
 		//DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 5, 200, vInlier);	
 		
@@ -780,13 +696,13 @@ void* Optical_Flow(void* param) {
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/flow_image_%03d.jpg", iFile);
 			imwrite(output_file_name, img_debug);
-
-			char temp[1000];
-			sprintf(temp, "./result/flow%04d.jpg", file_id);
-			file_id++;
-			imwrite(temp, img_debug);
-
-			cout << temp << endl;
+			
+			if (false) {
+				char temp[1000];
+				sprintf(temp, "./result/flow%04d.jpg", file_id);
+				file_id++;
+				imwrite(temp, img_debug);
+			}
 		}
 
 		if (false) {
@@ -816,31 +732,12 @@ void* Optical_Flow(void* param) {
 		cvReleaseMat(&cx);
 		//cout<<"<Tracking>pnp inlier:"<<vInlier.size()<<endl; 
 		
-		//update corr
-/*		vector<Correspondence2D3D> next_corr(vCorr.size());
-		for (int iF = 0; iF < vCorr.size(); iF++)
-		{
-			next_corr[iF] = vCorr[iF];
-			next_corr[iF].u = feature1[iF].x;
-			next_corr[iF].v = feature1[iF].y;
-		}
-*/
-/*
-		vector<Correspondence2D3D> next_corr(vInlier.size());
-		for (int iF = 0; iF < vInlier.size(); iF++)
-		{
-			next_corr[iF] = vCorr[vInlier[iF]];
-			next_corr[iF].u = feature1[vInlier[iF]].x;
-			next_corr[iF].v = feature1[vInlier[iF]].y;
-		}
-    		vCorr = next_corr;
-*/
-		//cout<<"<Tracking>"<<cvGetReal2D(P,0,0)<<" "<<cvGetReal2D(P,0,1)<<" "<<cvGetReal2D(P,0,2)<<endl;
-		//cout<<"<Tracking>"<<cvGetReal2D(P,1,0)<<" "<<cvGetReal2D(P,1,1)<<" "<<cvGetReal2D(P,1,2)<<endl;
-		//cout<<"<Tracking>"<<cvGetReal2D(P,2,0)<<" "<<cvGetReal2D(P,2,1)<<" "<<cvGetReal2D(P,2,2)<<endl;
-		//cout<<"<Tracking>"<<cvGetReal2D(P,0,3)<<" "<<cvGetReal2D(P,1,3)<<" "<<cvGetReal2D(P,2,3)<<endl;
 		vP[iFile] = P;
 		vFrame[iFile] = iFile;
+		
+		UpdateCameraDataRealTime(cameraFile, P, iFile, K, file_exist);
+		if (!file_exist)
+			file_exist = true;
 
 		cout<<"    <Tracking> Finish frame:"<<iFile<<endl;
 		t_prev = t_curr;
@@ -850,7 +747,7 @@ void* Optical_Flow(void* param) {
 	pthread_rwlock_wrlock(&image_lock);
 	frameID = -2;
 	pthread_rwlock_unlock(&image_lock);
-
+/*
 	vector<CvMat *> vP1;
 	vector<int> vFrame1;
 
@@ -863,6 +760,7 @@ void* Optical_Flow(void* param) {
 	}
 
 	SaveAbsoluteCameraData(cameraFile, vP1, vFrame1, vFilename.size(), K);
+*/
 }
 
 
