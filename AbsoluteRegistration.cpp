@@ -31,9 +31,9 @@
 #define DLT_RANSAC_MAX_ITER 100
 
 #define SCALAR 5
-#define DEBUG_FLOW 0
-#define DEBUG_KNN 0
-#define DEBUG_INLIER 0
+#define DEBUG_FLOW 1
+#define DEBUG_KNN 1
+#define DEBUG_INLIER 1
 
 #define FILE_PATH "./"
 #define INPUT_FOLDER "reconstruction/"
@@ -370,7 +370,7 @@ void* Optical_Flow(void* param) {
 			
 			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
 
-			if (flase) {
+			if (false) {
 				//cv::Mat im_d = img_prev.clone();
 				for (int i = 0; i < vCorr.size(); i++)
 				{
