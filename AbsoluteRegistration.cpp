@@ -31,7 +31,9 @@
 #define DLT_RANSAC_MAX_ITER 100
 
 #define SCALAR 5
-#define DEBUG 1
+#define DEBUG_FLOW 1
+#define DEBUG_KNN 1
+#define DEBUG_INLIER 1
 
 #define FILE_PATH "./"
 #define INPUT_FOLDER "reconstruction/"
@@ -49,6 +51,7 @@ bool isSIFT = false;
 int frameID = -1;
 int last_frame = -1;
 cv::Mat current_img;
+cv::Mat detection_img;
 vector<Correspondence2D3D> last_corr;
 vector<double> scales;
 cv::Scalar color_red = cv::Scalar(0, 0, 255);
@@ -245,6 +248,36 @@ void Undistortion_Radial(CvMat* K, CvMat* invK, double k1, vector<double> &vx,  
     }
 }
 
+void Distortion_Radial(CvMat* K, CvMat* invK, double k1, vector<double> &vx,  vector<double> &vy)
+{
+    double ik11 = cvGetReal2D(invK, 0, 0);  double ik12 = cvGetReal2D(invK, 0, 1);  double ik13 = cvGetReal2D(invK, 0, 2);
+    double ik21 = cvGetReal2D(invK, 1, 0);  double ik22 = cvGetReal2D(invK, 1, 1);  double ik23 = cvGetReal2D(invK, 1, 2);
+    double ik31 = cvGetReal2D(invK, 2, 0);  double ik32 = cvGetReal2D(invK, 2, 1);  double ik33 = cvGetReal2D(invK, 2, 2);
+    double k11 = cvGetReal2D(K, 0, 0);  double k12 = cvGetReal2D(K, 0, 1);  double k13 = cvGetReal2D(K, 0, 2);
+    double k21 = cvGetReal2D(K, 1, 0);  double k22 = cvGetReal2D(K, 1, 1);  double k23 = cvGetReal2D(K, 1, 2);
+    double k31 = cvGetReal2D(K, 2, 0);  double k32 = cvGetReal2D(K, 2, 1);  double k33 = cvGetReal2D(K, 2, 2);
+    for (int iPoint = 0; iPoint < vx.size(); iPoint++)
+    {
+        double x = vx[iPoint];
+        double y = vy[iPoint];
+	
+	double nx = (x-k13)/k11;
+	double ny = (y-k23)/k22;
+ 
+        double r_u = sqrt(nx*nx+ny*ny);
+	double u = nx * (1 + k1 * r_u * r_u);
+	double v = ny * (1 + k1 * r_u * r_u);
+
+	u = k11*u+k13;
+	v = k22*v+k23;
+ 
+        vx[iPoint] = u;
+        vy[iPoint] = v;
+ 
+        //cout << x << " " << y << endl;
+    }
+}
+
 void printTime(string text, timeval t1, timeval t2){
 	time_t sec = t2.tv_sec-t1.tv_sec;
 	suseconds_t usec = t2.tv_usec-t1.tv_usec;
@@ -263,8 +296,8 @@ void* Optical_Flow(void* param) {
 	cout << vFilename.size() << " images." << endl;
 	int registered_frame = 0;
 	cv::Mat img_prev, img_curr, img_debug;
-	vector<Correspondence2D3D> vCorr;
-	vector<double> vCorr_scales;
+	vector<Correspondence2D3D> vCorr, vCorr_p, vCorr_c;
+	vector<double> vCorr_scales, vCorr_scales_p, vCorr_scales_c;
 
 	timeval t_prev, t_curr;
 	vector<cv::Point2f> feature0;
@@ -272,6 +305,7 @@ void* Optical_Flow(void* param) {
 	int nFeatures;
 	
 	bool isInitialized = false;
+	int file_id = 0;
 	for (int iFile = 0; iFile < vFilename.size(); iFile++)
 	{
 		bool new_feature_flag = false;
@@ -281,14 +315,90 @@ void* Optical_Flow(void* param) {
 		current_img = img_curr.clone();
 		pthread_rwlock_unlock(&image_lock);
 
-		pthread_rwlock_rdlock(&feature_lock);
 		cout << "  <flow> Load file " << iFile << endl;
-		if (/*last_frame==frameID*/isSIFT){	
+		pthread_rwlock_rdlock(&image_lock);
+		bool isSIFT_loc = isSIFT;
+		pthread_rwlock_unlock(&image_lock);
+		/*if (isSIFT){	
 			new_feature_flag = true;
 			registered_frame = last_frame;
 			vCorr = last_corr;
-			if (DEBUG)
+			//vCorr_c = last_corr;
+			//for (int i = 0; i < vCorr_p.size(); i++)
+			//{
+			//	vCorr.push_back(vCorr_p[i]);
+			//}
+			//cout << vCorr_c.size() << " " << vCorr_p.size() << " " << vCorr.size() << endl;
+			//vCorr_p = vCorr_c;
+			
+			
+			if (DEBUG_FLOW)
+			{
+				//vCorr_scales_c = scales;
 				vCorr_scales = scales;
+				//for (int i = 0; i < vCorr_scales_p.size(); i++)
+				//{
+				//	vCorr_scales.push_back(vCorr_scales_p[i]);
+				//}
+				//vCorr_scales_p = vCorr_scales_c;
+			}
+			
+			nFeatures = vCorr.size();
+			feature0.resize(nFeatures);
+			for (int iF = 0; iF < nFeatures; iF++)
+	  		{
+	  			feature0[iF].x = vCorr[iF].u;
+	  			feature0[iF].y = vCorr[iF].v;
+	  		}
+			
+			feature1 = feature0;
+			isInitialized = true;
+	
+			
+			//img_curr.convertTo(current_img, CV_32FC1);
+			
+			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
+			
+		}
+		pthread_rwlock_unlock(&feature_lock);
+		*/
+
+		if (isSIFT_loc)
+		{
+			pthread_rwlock_rdlock(&image_lock);
+			cv::Mat im_d = detection_img.clone();			
+			img_prev = detection_img.clone();
+			registered_frame = last_frame;
+			vCorr = last_corr;
+			if (DEBUG_FLOW)
+			{
+				//vCorr_scales_c = scales;
+				vCorr_scales = scales;
+				//for (int i = 0; i < vCorr_scales_p.size(); i++)
+				//{
+				//	vCorr_scales.push_back(vCorr_scales_p[i]);
+				//}
+				//vCorr_scales_p = vCorr_scales_c;
+			}
+			pthread_rwlock_unlock(&image_lock);
+
+			new_feature_flag = true;
+			//pthread_rwlock_rdlock(&feature_lock);
+			
+			//vCorr = last_corr;
+			
+			//vCorr_c = last_corr;
+			//for (int i = 0; i < vCorr_p.size(); i++)
+			//{
+			//	vCorr.push_back(vCorr_p[i]);
+			//}
+			//cout << vCorr_c.size() << " " << vCorr_p.size() << " " << vCorr.size() << endl;
+			//vCorr_p = vCorr_c;
+			
+			
+
+			//pthread_rwlock_unlock(&feature_lock);			
+
 			nFeatures = vCorr.size();
 			feature0.resize(nFeatures);
 			for (int iF = 0; iF < nFeatures; iF++)
@@ -304,20 +414,29 @@ void* Optical_Flow(void* param) {
 			sprintf(output_file_name, "./result/match_%4d_%4d.bmp", frameID, iFile);
 */			
 			
-			img_prev = img_curr.clone();
+			
 			//img_curr.convertTo(current_img, CV_32FC1);
 			
 			cout<< "    <Tracking> Got frame: "<< registered_frame << endl;
-/*			
-			//debug
-			cv::Mat img_debug = img_prev.clone();
-			for (int i = 0; i < feature0.size(); i++)
+
+			//cv::Mat im_d = img_prev.clone();
+			for (int i = 0; i < vCorr.size(); i++)
 			{
-				circle(img_debug, feature0[i],5,color);
+				cv::Point2f p1, p2;
+				p1.x = vCorr[i].u;
+				p1.y = vCorr[i].v;
+				//line(img_debug, feature1[i], p1, color_blue, 1);
+				circle(im_d, p1, 5, color_green, -1);	
+				if (i == 0)
+				cout << "optical: " << last_corr[i].u << " " << last_corr[i].v << endl;
 			}
-			imwrite(output_file_name, img_debug);
-*/		}
-		pthread_rwlock_unlock(&feature_lock);
+			
+			char temp[1000];
+			sprintf(temp, "./result/first%04d.jpg", registered_frame);
+			cout << temp << endl;
+			//file_id++;
+			imwrite(temp, im_d);
+		}
 
 		pthread_rwlock_wrlock(&image_lock);
 		frameID = iFile;
@@ -329,9 +448,9 @@ void* Optical_Flow(void* param) {
 		if (!isInitialized)
 			continue;
 
-		pthread_rwlock_wrlock(&feature_lock);
+		pthread_rwlock_wrlock(&image_lock);
 		isSIFT = false;
-		pthread_rwlock_unlock(&feature_lock);
+		pthread_rwlock_unlock(&image_lock);
 
 		//pthread_rwlock_rdlock(&feature_lock);
 		//if (last_frame>registered_frame){
@@ -348,7 +467,7 @@ void* Optical_Flow(void* param) {
 
 		cv::TermCriteria optical_flow_termination_criteria( CV_TERMCRIT_ITER | CV_TERMCRIT_EPS, 100, .3 );
 
-		cv::Size optical_flow_window(30, 30);
+		cv::Size optical_flow_window(50, 50);
 		
 		if (iFile == 0 || registered_frame == -1) {
 			img_prev = img_curr.clone();
@@ -376,7 +495,6 @@ void* Optical_Flow(void* param) {
 					 optical_flow_termination_criteria,
 					 cv::OPTFLOW_USE_INITIAL_FLOW);
 		if (false) {
-			//static_cast<unsigned>(optical_flow_found_feature);
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/feature_after_flow_%0d.txt", iFile);
 			ofstream fout(output_file_name);
@@ -387,7 +505,7 @@ void* Optical_Flow(void* param) {
 			fout.close();
 		}
 
-		if (DEBUG) {
+		if (DEBUG_FLOW) {
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/flow_feature_number_%0d.txt", iFile);
 			ofstream fout(output_file_name);
@@ -407,15 +525,24 @@ void* Optical_Flow(void* param) {
 		//}
 
 		// plot flow before undistortion
-		if (DEBUG)
+		if (DEBUG_FLOW)
 			cvtColor(img_curr, img_debug, CV_GRAY2RGB);
+		vx.clear();
+		vy.clear();
+		cout << "a " << feature1.size() << " " << vCorr_p.size() << endl;
 		for (int i = 0; i < feature1.size(); i++)
 		{
-			vx[i] = feature1[i].x;
-			vy[i] = feature1[i].y;
+			vx.push_back(feature1[i].x);
+			vy.push_back(feature1[i].y);
+			
+			//if (i < vCorr_c.size())
+			//{
+			//	vCorr_p[i].u = feature1[i].x;
+			//	vCorr_p[i].v = feature1[i].y;
+			//}	
 
 			// plot flow tracking
-			if (DEBUG) {
+			if (DEBUG_FLOW) {
 				string myStr;          //The string
 				ostringstream myTemp;  //temp as in temporary
 				myTemp << iFile;
@@ -436,12 +563,6 @@ void* Optical_Flow(void* param) {
 						circle(img_debug, feature0[i], 1.4 * vCorr_scales[i], color_red, 2);
 				}
 			}
-		}
-
-		if (DEBUG) {
-			char output_file_name[100];
-			sprintf(output_file_name, "./result/flow_image_%0d.bmp", iFile);
-			imwrite(output_file_name, img_debug);
 		}
 
 		Undistortion_Radial(K, invK, k1, vx, vy);
@@ -474,11 +595,19 @@ void* Optical_Flow(void* param) {
     //cout<<"<Tracking>"<<cvGetReal2D(K,1,0)<<" "<<cvGetReal2D(K,1,1)<<" "<<cvGetReal2D(K,1,2)<<endl;
     //cout<<"<Tracking>"<<cvGetReal2D(K,2,0)<<" "<<cvGetReal2D(K,2,1)<<" "<<cvGetReal2D(K,2,2)<<endl;
 		
-		CvMat *P = cvCreateMat(3,4,CV_32FC1);
-//		EPNP_ExtrinsicCameraParamEstimation(cX, cx, K, P);	
-
 		vector<int> vInlier;
-		DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 10, 50, vInlier);	
+
+		CvMat *P = cvCreateMat(3,4,CV_32FC1);
+		//EPNP_ExtrinsicCameraParamEstimation(cX, cx, K, P);	
+		//for (int i = 0; i < vCorr.size(); i++)
+		//	vInlier.push_back(i);
+
+
+
+		PnP_Opencv(cX, cx, K, P, 5, 200, vInlier);
+		
+		
+		//DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 5, 200, vInlier);	
 		
 		//////////////////////////////////////////
 		//Refinement
@@ -494,17 +623,171 @@ void* Optical_Flow(void* param) {
 			cvSetReal2D(cx_ransac, iPoint, 0, vCorr[vInlier[iPoint]].u);
 			cvSetReal2D(cx_ransac, iPoint, 1, vCorr[vInlier[iPoint]].v);
 		}
+		//EPNP_ExtrinsicCameraParamEstimation(cX_ransac, cx_ransac, K, P);
 		
 		// if (vP.size() > 0)
 			// P = cvCloneMat(vP[vP.size()-1]);
 
 		gettimeofday(&t1,NULL);
-		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 40);
+		//AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 40);
 		gettimeofday(&t2,NULL);
 		printTime("    <Tracking> Refinement time: ", t1, t2);
 		cvReleaseMat(&cX_ransac);
 		cvReleaseMat(&cx_ransac);
 		//////////////////////////////////////////
+
+		if (DEBUG_FLOW) {
+			CvMat *R = cvCreateMat(3,3,CV_32FC1);
+			CvMat *C = cvCreateMat(3,1,CV_32FC1);
+			GetCameraParameter(P, K, R, C);
+
+			vector<double> vu, vv, vu1, vv1;
+			CvMat *X4 = cvCreateMat(4,1,CV_32FC1);
+			CvMat *x4 = cvCreateMat(3,1,CV_32FC1);
+			for (int i = 0; i < cX->rows; i++)
+			{
+				cvSetReal2D(X4, 0, 0, cvGetReal2D(cX, i, 0));
+				cvSetReal2D(X4, 1, 0, cvGetReal2D(cX, i, 1));
+				cvSetReal2D(X4, 2, 0, cvGetReal2D(cX, i, 2));
+				cvSetReal2D(X4, 3, 0, 1);
+			
+				cvMatMul(P, X4, x4);
+				vu.push_back(cvGetReal2D(x4, 0, 0)/cvGetReal2D(x4, 2, 0));
+				vv.push_back(cvGetReal2D(x4, 1, 0)/cvGetReal2D(x4, 2, 0));
+				
+				vu1.push_back(cvGetReal2D(cx, i, 0));
+				vv1.push_back(cvGetReal2D(cx, i, 1));
+
+			}
+			//vector<double> vu1, vv1;
+			//vu1 = vu;
+			//vv1 = vv;
+			Distortion_Radial(K, invK, k1, vu, vv);
+			Distortion_Radial(K, invK, k1, vu1, vv1);
+			//Undistortion_Radial(K, invK, k1, vu, vv);
+
+			//for (int i = 0; i < vInlier.size(); i++)
+			//{
+			//	cv::Point2f p1, p2;
+		//		p1.x = vu[vInlier[i]];
+		//		p1.y = vv[vInlier[i]];
+		//		//line(img_debug, feature1[vInlier[i]], p1, color_blue, 1);
+		//		circle(img_debug, feature1[vInlier[i]], 3, color_blue, -1);
+		//	}
+
+			for (int i = 0; i < vCorr.size(); i++)
+			{
+				cv::Point2f p1, p2;
+				p1.x = vu[i];
+				p1.y = vv[i];
+			
+				p2.x = vu1[i];
+				p2.y = vv1[i];
+				line(img_debug, p1, p2, color_blue, 1);
+				//circle(img_debug, feature1[vInlier[i]], 3, color_blue, -1);
+			}
+
+			//Distortion_Radial(K, invK, k1, vx, vy);
+			for (int i = 0; i < vx.size(); i++)
+			{
+				cv::Point2f p1, p2;
+				p1.x = vu1[i];
+				p1.y = vv1[i];
+				//line(img_debug, feature1[i], p1, color_blue, 1);
+				circle(img_debug, p1, 5, color_green, -1);
+			}
+
+
+			double origin_x = cvGetReal2D(C, 0, 0) + 5*cvGetReal2D(R, 2, 0);
+			double origin_y = cvGetReal2D(C, 1, 0) + 5*cvGetReal2D(R, 2, 1);
+			double origin_z = cvGetReal2D(C, 2, 0) + 5*cvGetReal2D(R, 2, 2);
+
+			double X_x = origin_x + 1;
+			double X_y = origin_y + 0;
+			double X_z = origin_z + 0;
+
+			double Y_x = origin_x + 0;
+			double Y_y = origin_y + 1;
+			double Y_z = origin_z + 0;
+
+			double Z_x = origin_x + 0;
+			double Z_y = origin_y + 0;
+			double Z_z = origin_z + 1;
+
+			CvMat *O_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(O_, 0, 0, origin_x);
+			cvSetReal2D(O_, 1, 0, origin_y);
+			cvSetReal2D(O_, 2, 0, origin_z);
+			cvSetReal2D(O_, 3, 0, 1);
+
+			CvMat *X_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(X_, 0, 0, X_x);
+			cvSetReal2D(X_, 1, 0, X_y);
+			cvSetReal2D(X_, 2, 0, X_z);
+			cvSetReal2D(X_, 3, 0, 1);
+
+			CvMat *Y_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(Y_, 0, 0, Y_x);
+			cvSetReal2D(Y_, 1, 0, Y_y);
+			cvSetReal2D(Y_, 2, 0, Y_z);
+			cvSetReal2D(Y_, 3, 0, 1);
+
+			CvMat *Z_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(Z_, 0, 0, Z_x);
+			cvSetReal2D(Z_, 1, 0, Z_y);
+			cvSetReal2D(Z_, 2, 0, Z_z);
+			cvSetReal2D(Z_, 3, 0, 1);
+
+			CvMat *o_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *x_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *y_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *z_ = cvCreateMat(3,1,CV_32FC1);
+
+			cvMatMul(P, O_, o_);
+			cvMatMul(P, X_, x_);
+			cvMatMul(P, Y_, y_);
+			cvMatMul(P, Z_, z_);
+
+			cv::Point2f op, xp, yp, zp;
+			op.x = cvGetReal2D(o_, 0, 0)/cvGetReal2D(o_, 2, 0) + 200;
+			op.y = cvGetReal2D(o_, 1, 0)/cvGetReal2D(o_, 2, 0) + 100;
+
+			xp.x = cvGetReal2D(x_, 0, 0)/cvGetReal2D(x_, 2, 0) + 200;
+			xp.y = cvGetReal2D(x_, 1, 0)/cvGetReal2D(x_, 2, 0) + 100;
+
+			yp.x = cvGetReal2D(y_, 0, 0)/cvGetReal2D(y_, 2, 0) + 200;
+			yp.y = cvGetReal2D(y_, 1, 0)/cvGetReal2D(y_, 2, 0) + 100;
+
+			zp.x = cvGetReal2D(z_, 0, 0)/cvGetReal2D(z_, 2, 0) + 200;
+			zp.y = cvGetReal2D(z_, 1, 0)/cvGetReal2D(z_, 2, 0) + 100;
+
+			line(img_debug, op, xp, color_red, 2);
+			line(img_debug, op, yp, color_green, 2);
+			line(img_debug, op, zp, color_blue, 2);
+
+			cvReleaseMat(&O_);
+			cvReleaseMat(&X_);
+			cvReleaseMat(&Y_);
+			cvReleaseMat(&Z_);
+
+			cvReleaseMat(&o_);
+			cvReleaseMat(&x_);
+			cvReleaseMat(&y_);
+			cvReleaseMat(&z_);
+			cvReleaseMat(&C);
+			cvReleaseMat(&R);
+
+			char output_file_name[100];
+			sprintf(output_file_name, "./result/flow_image_%03d.jpg", iFile);
+			imwrite(output_file_name, img_debug);
+
+			char temp[1000];
+			sprintf(temp, "./result/flow%04d.jpg", file_id);
+			file_id++;
+			imwrite(temp, img_debug);
+
+			cout << temp << endl;
+		}
 
 		if (false) {
 			//static_cast<unsigned>(optical_flow_found_feature);
@@ -700,21 +983,24 @@ int main ( int argc, char * * argv )
 	while(true) {
 		cv::Mat img; 
 
+		
+
 		pthread_rwlock_rdlock(&image_lock);
-		if (frameID == -2) {
-			cout << "<Matching> Thread ends ..." << endl;
-			pthread_rwlock_unlock(&image_lock);
+		int frameID_loc = frameID;
+		cv::Mat img_temp = current_img.clone();
+		
+		pthread_rwlock_unlock(&image_lock);
+
+		if (frameID_loc == -2) {
+			cout << "<Matching> Thread ends ..." << endl;			
 			break;
 		}
 		
-		if (currentID >= frameID) {
-			pthread_rwlock_unlock(&image_lock);
+		if (currentID >= frameID_loc) {
 			continue;
 		}
-		currentID = frameID;
-
-		current_img.convertTo(img, CV_32FC1);
-		pthread_rwlock_unlock(&image_lock);
+		currentID = frameID_loc;
+		img_temp.convertTo(img, CV_32FC1);
 
 		cout<< "<Matching> Got frame: "<< currentID << ": "<< img.cols <<","<<img.rows << endl;
 		//extract feature
@@ -736,15 +1022,20 @@ int main ( int argc, char * * argv )
 		////////////////////////////////////////////////////////////////////////
 		gettimeofday(&t1,NULL);
 	  	SiftData siftData;
-	  	float initBlur = 0.0f;
-	  	float thresh = 3.0f;
-	  	InitSiftData(siftData, 1200, true, true);
-	  	ExtractSift(siftData, img_cuda, 3, initBlur, thresh, 2.0f);
+	  	//float initBlur = 0.0f;
+	  	//float thresh = 3.0f;
+	  	//InitSiftData(siftData, 1200, true, true);
+	  	//ExtractSift(siftData, img_cuda, 3, initBlur, thresh, 2.0f);
+
+	float initBlur = 0.0f;
+	float thresh = 2.0f;
+	InitSiftData(siftData, 4096, true, true);
+	ExtractSift(siftData, img_cuda, 5, initBlur, thresh, 0.0f);
+
 		gettimeofday(&t2,NULL);
 		printTime("<Matching> Extraction time: ",t1,t2); 
 
 		vector<double> vx,  vy;
-		vector<double> vx_large_scale, vy_large_scale;
 		for (int i = 0; i < siftData.numPts; i++)
 		{
 			if (siftData.h_data[i].scale > SCALAR) {
@@ -779,70 +1070,6 @@ int main ( int argc, char * * argv )
 	  	//////////////////		FLANN
 		////////////////////////////////////////////////////////////////////////	
 		gettimeofday(&t1,NULL);
-/*		int num_block = vSift_desc.size()/4;
-		if (vSift_desc.size()%4!=0) num_block++;
-		vector<cv::Mat> descs(4);
-		#pragma omp parallel for
-		for (int index = 0; index<4; index++){
-		    int max_I;
-		    if (num_block>vSift_desc.size()-index*num_block)
-			max_I = vSift_desc.size()-index*num_block;
-		    else
-			max_I = num_block;
-		    cv::Mat Desc(max_I, 128, CV_32F);
-		    for (int i=0; i<max_I; ++i)
-			for(int j=0; j<128; ++j)finish frame:34
-			    Desc.at<float>(i, j) = vSift_desc[i+index*num_block].vDesc[j];
-		    //descs.push_back(Desc);
-		    descs[index] = Desc;
-		}
-		//cout<<"extract"<<endl;
-		//index = 1;last_corr
-		//    for (int i=0; i<200; ++i)
-		//	for(int j=0; j<128; ++j)
-		//	    descs[index].at<float>(i, j) = vSift_desc[i+index*200].vDesc[j];
-		vector<vector<vector<cv::DMatch> > > all_matches(4);
-		//cout<<"before matching"<<endl;
-		#pragma omp parallel for
-		for (int i=0; i<4; ++i)
-		    matchers[i]->knnMatch(descs[i], all_matches[i], 2);
-		//cout<<"after matching"<<endl;
-
-		//Get inliners
-		vector<Correspondence2D3D> vCorr, vCorr_ransac;
-		for (int i = 0; i < vSift_desc.size(); i++)
-		{
-			int blockID = i/num_block;
-			int iDesc = i%num_block;
-			//float dist1 = dist[iDesc][0];
-			//float dist2 = dist[iDesc][1];
-			//cout<<blockID<<" "<<all_matches[blockID].size()<<" "<<iDesc<<endl;
-			float dist1 = all_matches[blockID][iDesc][0].distance;
-			float dist2 = all_matches[blockID][iDesc][1].distance;
-			//cout<<i<<" "<<all_matches[blockID][iDesc][0].trainIdx<<" "<<all_matches[blockID][iDesc][1].trainIdx<<endl;
-
-			if (dist1/dist2 < 0.7)
-			{
-				Correspondence2D3D corr;
-				corr.u = vSift_desc[i].x;
-				corr.v = vSift_desc[i].y;
-
-				corr.x = vX[all_matches[blockID][iDesc][0].trainIdx];
-				corr.y = vY[all_matches[blockID][iDesc][0].trainIdx];
-						current_corr.resize(vInlier.size());
-		for (int iF = 0; iF < nFeatures; iF++)
-		{
-			current_corr[iF] = vCorr[vInlier[iF]];
-		}
-corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
-
-				corr.id_2D = vSift_desc[i].id;
-				corr.vector<cv::Point2f> fid_3D = vID[all_matches[blockID][iDesc][0].trainIdx];
-
-				vCorr.push_back(corr);
-			}
-		}
-*/
 		cv::Mat descs(vSift_desc.size(), 128, CV_32F);
 		for(int i=0; i<descs.rows; ++i)
 		    for(int j=0; j<descs.cols; ++j)
@@ -876,7 +1103,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 
 				vCorr.push_back(corr);
 				distort_feature.push_back(make_pair(vx_d[iDesc], vy_d[iDesc]));
-				if (DEBUG)
+				if (DEBUG_FLOW)
 					vCorr_scales.push_back(vSift_desc[iDesc].scale);
 			}
 		}
@@ -885,7 +1112,7 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		printTime("<Matching> Matching time: ",t1,t2);
 		
 		// plot matching result
-		if (false) {
+		if (DEBUG_KNN) {
 			cvtColor(img, img_debug, CV_GRAY2RGB);
 			for (int i = 0; i < vSift_desc.size(); i++) {
 				cv::Point2f point;
@@ -900,10 +1127,9 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 				circle(img_debug, point, 5, color_red, 2);
 			}
 			char output_file_name[100];
-			sprintf(output_file_name, "./result/corr_%0d.bmp", currentID);
+			sprintf(output_file_name, "./result/corr_%0d.jpg", currentID);
 			imwrite(output_file_name, img_debug);
 		}
-
 
 		if (vCorr.size() < 20)
 		{
@@ -943,9 +1169,10 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		
 		CvMat *P = cvCreateMat(3,4,CV_32FC1);
 		vector<int> vInlier;
-		if (DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(cX, cx, K, P, 10, 100, vInlier) < 20)
+		PnP_Opencv(cX, cx, K, P, 5, 200, vInlier);
+		if (vInlier.size() < 20)
 		{
-			if (DEBUG) {
+			if (DEBUG_FLOW) {
 				char output_file_name[100];
 				sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
 				ofstream fout(output_file_name);
@@ -958,28 +1185,20 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 			cvReleaseMat(&cx);
 			cvReleaseMat(&P);
 
-			pthread_rwlock_rdlock(&image_lock);
-			if (frameID==-2){
-				pthread_rwlock_unlock(&image_lock);
+			if (frameID_loc==-2){
 				break;
 			}
-			pthread_rwlock_unlock(&image_lock);
-
-			//pthread_rwlock_wrlock(&image_lock);
-			//frameID = last_frame;
-			//pthread_rwlock_unlock(&image_lock);
 
 			continue;
 		}
 
-		if (DEBUG) {
+		if (DEBUG_FLOW) {
 			char output_file_name[100];
 			sprintf(output_file_name, "./result/inlier_number_%0d.txt", currentID);
 			ofstream fout(output_file_name);
 			fout << currentID << " " << vInlier.size() << endl;
 			fout.close();
 		}
-		
 		
 		gettimeofday(&t2,NULL);
 		printTime("<Matching> Epnp time: ",t1,t2); 
@@ -990,8 +1209,6 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		//cout<<"<Matching>"<<cvGetReal2D(P,1,0)<<" "<<cvGetReal2D(P,1,1)<<" "<<cvGetReal2D(P,1,2)<<endl;
 		//cout<<"<Matching>"<<cvGetReal2D(P,2,0)<<" "<<cvGetReal2D(P,2,1)<<" "<<cvGetReal2D(P,2,2)<<endl;
 		//cout<<"<Matching>"<<cvGetReal2D(P,0,3)<<" "<<cvGetReal2D(P,1,3)<<" "<<cvGetReal2D(P,2,3)<<endl;
-		
-		
 		
 		//////////////////////////////////////////
 		//Refinement
@@ -1012,29 +1229,34 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 			// P = cvCloneMat(vP[vP.size()-1]);
 		
 		gettimeofday(&t1,NULL);
-		AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 80);
+		//AbsoluteCameraPoseRefinement_Jacobian(cX_ransac, cx_ransac, P, K, 80);
 		gettimeofday(&t2,NULL);
 		printTime("<Matching> Refinement time: ", t1, t2);
 		cvReleaseMat(&cX_ransac);
 		cvReleaseMat(&cx_ransac);
+
 		//////////////////////////////////////////
 		
 		
 		
 		//restore inliner
-		pthread_rwlock_wrlock(&feature_lock);
-		last_frame = currentID;
+		pthread_rwlock_wrlock(&image_lock);
+		detection_img = img_temp.clone();
 		last_corr.resize(vInlier.size());
+		last_frame = currentID;
 		scales.resize(vInlier.size()); // debug
 		for (int iF = 0; iF < vInlier.size(); iF++)
 		{
 			last_corr[iF] = vCorr[vInlier[iF]];
 			last_corr[iF].u = distort_feature[vInlier[iF]].first;
 			last_corr[iF].v = distort_feature[vInlier[iF]].second;
-			if (DEBUG)
+			if (DEBUG_FLOW)
 				scales[iF] = vCorr_scales[vInlier[iF]];
+
+			if (iF == 0)
+				cout << last_corr[iF].u << " " << last_corr[iF].v << endl;
 		}
-		pthread_rwlock_unlock(&feature_lock);
+		pthread_rwlock_unlock(&image_lock);
 		//sleep(100);
 
 		t_prev = t_curr;
@@ -1042,10 +1264,10 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		printTime("<Matching> Frame time: ",t_prev,t_curr);
 
 		// plot inliers
-		if (false) {
-			pthread_rwlock_rdlock(&feature_lock);
+		if (DEBUG_INLIER) {
+			pthread_rwlock_rdlock(&image_lock);
 			vector<Correspondence2D3D> corr_temp = last_corr;
-			pthread_rwlock_unlock(&feature_lock);
+			pthread_rwlock_unlock(&image_lock);
 			cvtColor(img, img_debug, CV_GRAY2RGB);
 			for (int i = 0; i < vCorr.size(); i++) {
 				cv::Point2f point;
@@ -1059,10 +1281,97 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 				point.y = corr_temp[i].v;
 				circle(img_debug, point, 5, color_red, 2);
 			}
+
+			CvMat *R = cvCreateMat(3,3,CV_32FC1);
+			CvMat *C = cvCreateMat(3,1,CV_32FC1);
+			GetCameraParameter(P, K, R, C);
+
+			double origin_x = cvGetReal2D(C, 0, 0) + 5*cvGetReal2D(R, 2, 0);
+			double origin_y = cvGetReal2D(C, 1, 0) + 5*cvGetReal2D(R, 2, 1);
+			double origin_z = cvGetReal2D(C, 2, 0) + 5*cvGetReal2D(R, 2, 2);
+
+			double X_x = origin_x + 1;
+			double X_y = origin_y + 0;
+			double X_z = origin_z + 0;
+
+			double Y_x = origin_x + 0;
+			double Y_y = origin_y + 1;
+			double Y_z = origin_z + 0;
+
+			double Z_x = origin_x + 0;
+			double Z_y = origin_y + 0;
+			double Z_z = origin_z + 1;
+
+			CvMat *O_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(O_, 0, 0, origin_x);
+			cvSetReal2D(O_, 1, 0, origin_y);
+			cvSetReal2D(O_, 2, 0, origin_z);
+			cvSetReal2D(O_, 3, 0, 1);
+
+			CvMat *X_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(X_, 0, 0, X_x);
+			cvSetReal2D(X_, 1, 0, X_y);
+			cvSetReal2D(X_, 2, 0, X_z);
+			cvSetReal2D(X_, 3, 0, 1);
+
+			CvMat *Y_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(Y_, 0, 0, Y_x);
+			cvSetReal2D(Y_, 1, 0, Y_y);
+			cvSetReal2D(Y_, 2, 0, Y_z);
+			cvSetReal2D(Y_, 3, 0, 1);
+
+			CvMat *Z_ = cvCreateMat(4,1,CV_32FC1);
+			cvSetReal2D(Z_, 0, 0, Z_x);
+			cvSetReal2D(Z_, 1, 0, Z_y);
+			cvSetReal2D(Z_, 2, 0, Z_z);
+			cvSetReal2D(Z_, 3, 0, 1);
+
+			CvMat *o_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *x_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *y_ = cvCreateMat(3,1,CV_32FC1);
+			CvMat *z_ = cvCreateMat(3,1,CV_32FC1);
+
+			cvMatMul(P, O_, o_);
+			cvMatMul(P, X_, x_);
+			cvMatMul(P, Y_, y_);
+			cvMatMul(P, Z_, z_);
+
+			cv::Point2f op, xp, yp, zp;
+			op.x = cvGetReal2D(o_, 0, 0)/cvGetReal2D(o_, 2, 0) + 200;
+			op.y = cvGetReal2D(o_, 1, 0)/cvGetReal2D(o_, 2, 0) + 100;
+
+			xp.x = cvGetReal2D(x_, 0, 0)/cvGetReal2D(x_, 2, 0) + 200;
+			xp.y = cvGetReal2D(x_, 1, 0)/cvGetReal2D(x_, 2, 0) + 100;
+
+			yp.x = cvGetReal2D(y_, 0, 0)/cvGetReal2D(y_, 2, 0) + 200;
+			yp.y = cvGetReal2D(y_, 1, 0)/cvGetReal2D(y_, 2, 0) + 100;
+
+			zp.x = cvGetReal2D(z_, 0, 0)/cvGetReal2D(z_, 2, 0) + 200;
+			zp.y = cvGetReal2D(z_, 1, 0)/cvGetReal2D(z_, 2, 0) + 100;
+
+			line(img_debug, op, xp, color_red, 2);
+			line(img_debug, op, yp, color_green, 2);
+			line(img_debug, op, zp, color_blue, 2);
+
+			cvReleaseMat(&O_);
+			cvReleaseMat(&X_);
+			cvReleaseMat(&Y_);
+			cvReleaseMat(&Z_);
+
+			cvReleaseMat(&o_);
+			cvReleaseMat(&x_);
+			cvReleaseMat(&y_);
+			cvReleaseMat(&z_);
+
 			char output_file_name[100];
-			sprintf(output_file_name, "./result/inlier_%0d.bmp", currentID);
+			sprintf(output_file_name, "./result/inlier_%0d.jpg", currentID);
 			imwrite(output_file_name, img_debug);
+
+			cvReleaseMat(&C);
+			cvReleaseMat(&R);
 		}
+
+		
 
 		if (false) {
 			char output_file_name[100];
@@ -1078,9 +1387,9 @@ corr.z = vZ[all_matches[blockID][iDesc][0].trainIdx];
 		vP[currentID] = P;
 		vFrame[currentID] = currentID;
 
-		pthread_rwlock_wrlock(&feature_lock);
+		pthread_rwlock_wrlock(&image_lock);
 		isSIFT = true;
-		pthread_rwlock_unlock(&feature_lock);
+		pthread_rwlock_unlock(&image_lock);
 	}
 
 	vector<CvMat *> vP1;
