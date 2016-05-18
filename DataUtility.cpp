@@ -4733,7 +4733,7 @@ void ResaveAbsoluteCameraData(string filename, int nFrames)
 	ofstream fout;
 	fout.open(filename.c_str(), ios_base::out);
 
-	fout << "NumFrames " << nFrames << endl;;
+	fout << "NumFrames " << nFrames << endl;
 	fout << "NumCams " << 1 << endl;
 	fout << "NumP " << nFrames << endl;
 
