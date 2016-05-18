@@ -367,8 +367,11 @@ void* Optical_Flow(void* param)
 	InitCuda(0);
 	int registered_frame = 0;
 	cv::Mat img_prev, img_curr, img_debug;
-	vector<Correspondence2D3D> vCorr;
-	vector<double> vCorr_scales;
+	//vector<Correspondence2D3D> vCorr;
+	//vector<double> vCorr_scales;
+
+	vector<Correspondence2D3D> vCorr, vCorr_p, vCorr_c;
+	vector<double> vCorr_scales, vCorr_scales_p, vCorr_scales_c;
 
 	timeval t_prev, t_curr;
 	vector<cv::Point2f> feature0;
@@ -382,6 +385,8 @@ void* Optical_Flow(void* param)
 		//cout << vFilename[iFile] << endl;
 		bool new_feature_flag = false;
 		cv::imread(path+vFilename[iFile], 0).convertTo(img_curr, CV_8U);
+
+		cout<<"    <flow> read file: " << iFile << endl;
 
 		gettimeofday(&t_prev,NULL);
 		pthread_rwlock_rdlock(&image_lock);
@@ -408,9 +413,23 @@ void* Optical_Flow(void* param)
 			vCorr = last_corr;
 			if (DEBUG_FLOW)
 			{
+				//vCorr_scales_c = scales;
 				vCorr_scales = scales;
+				//for (int i = 0; i < vCorr_scales_p.size(); i++)
+				//{
+				//	vCorr_scales.push_back(vCorr_scales_p[i]);
+				//}
+				//vCorr_scales_p = vCorr_scales_c;
 			}
-			pthread_rwlock_unlock(&image_lock);		
+			pthread_rwlock_unlock(&image_lock);	
+
+			//vCorr_c = vCorr;
+			//for (int i = 0; i < vCorr_p.size(); i++)
+			//{
+			//	vCorr.push_back(vCorr_p[i]);
+			//}
+			//cout << vCorr_c.size() << " " << vCorr_p.size() << " " << vCorr.size() << endl;
+			//vCorr_p = vCorr_c;	
 
 			nFeatures = vCorr.size();
 			feature0.resize(nFeatures);
@@ -425,12 +444,13 @@ void* Optical_Flow(void* param)
 		}
 		
 		// Should be removed for realtime
-		if (iFile==0)
-     			usleep(5000000);
-
+		//if (iFile==0)
+     		//	usleep(8000000);
 		if (!isInitialized)
+		{
+			iFile--;
 			continue;
-		
+		}		
 		//////////////////////////////////////////////////////////////////////////////////////
 		///////////////////// 		Optical Flow
 		//////////////////////////////////////////////////////////////////////////////////////
@@ -456,6 +476,12 @@ void* Optical_Flow(void* param)
 		{
 			vx.push_back(feature1[i].x);
 			vy.push_back(feature1[i].y);
+
+			//if (i < vCorr_c.size())
+			//{
+			//	vCorr_p[i].u = feature1[i].x;
+			//	vCorr_p[i].v = feature1[i].y;
+			//}	
 		}
 		Undistortion_Radial(vx, vy);
 
@@ -519,7 +545,7 @@ void* Optical_Flow(void* param)
 		
 		vector<int> vInlier;
 		CvMat *P = cvCreateMat(3,4,CV_32FC1);
-		PnP_Opencv(cX, cx, K, P, 10, 30, vInlier);
+		PnP_Opencv(cX, cx, K, P, 5, 100, vInlier);
 
 		cvReleaseMat(&cX);
 		cvReleaseMat(&cx);
@@ -692,7 +718,7 @@ void LoadCalibrationData(string path, CvMat *K, CvMat *invK, double &k1)
 	cvSetReal2D(K, 1, 1, focal_y);
 	cvSetReal2D(K, 1, 2, princ_y);
 
-	k1 = distCtrX;
+	k1 = omega;
 
 	cvInvert(K, invK);
 	fin_cal.close();
@@ -812,7 +838,7 @@ int main ( int argc, char * * argv )
 
 		gettimeofday(&t2,NULL);
 		t_ext = measureTime(t1, t2);
-
+		cout << "sift size " << siftData.numPts << endl;
 		////////////////////////////////////////////////////////////////////////
 	  	//////////////////		Preparing matching
 		////////////////////////////////////////////////////////////////////////
@@ -837,7 +863,6 @@ int main ( int argc, char * * argv )
 			sift_desc.x = vx[vSift_desc.size()];
 			sift_desc.y = vy[vSift_desc.size()];
 
-			//cout << sift_desc.x << " " << sift_desc.y << endl;
 			sift_desc.scale = siftData.h_data[i].scale;
 			sift_desc.orientation = siftData.h_data[i].orientation/360*M_PI;
 			float *sift = siftData.h_data[i].data;
@@ -944,7 +969,7 @@ int main ( int argc, char * * argv )
 		
 		CvMat *P = cvCreateMat(3,4,CV_32FC1);
 		vector<int> vInlier;
-		PnP_Opencv(cX, cx, K, P, 5, 100, vInlier);
+		PnP_Opencv(cX, cx, K, P, 10, 100, vInlier);
 
 		cvReleaseMat(&cX);
 		cvReleaseMat(&cx);
