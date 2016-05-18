@@ -1,6 +1,13 @@
 #include "MultiviewGeometryUtility.h"
 #include <assert.h>
+#include <sys/time.h>
 using namespace std;
+
+double measureTime1(timeval t1, timeval t2){
+	time_t sec = t2.tv_sec-t1.tv_sec;
+	suseconds_t usec = t2.tv_usec-t1.tv_usec;
+	return (sec*1000000+usec)/1000000.0;
+}
 
 void AbsoluteCameraPoseRefinement_Jacobian(CvMat *X, CvMat *x, CvMat *P, CvMat *K, int nIters)
 {
@@ -5056,6 +5063,182 @@ int DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_AD(CvMat *X, CvMat *x, Cv
 		return 0;
 	cout << "Number of features ePnP: " << vInlierIndex.size() << endl;
 	return vInlierIndex.size();
+}
+
+int PnP_Opencv(CvMat *X, CvMat *x, CvMat *K, CvMat *P, double th, int nIter, vector<int> &vInlier)
+{
+	cv::Mat cameraMatrix(3,3,CV_64F);
+	cameraMatrix.at<double>(0, 0) = cvGetReal2D(K, 0, 0);
+	cameraMatrix.at<double>(0, 1) = cvGetReal2D(K, 0, 1);
+	cameraMatrix.at<double>(0, 2) = cvGetReal2D(K, 0, 2);
+
+	cameraMatrix.at<double>(1, 0) = cvGetReal2D(K, 1, 0);
+	cameraMatrix.at<double>(1, 1) = cvGetReal2D(K, 1, 1);
+	cameraMatrix.at<double>(1, 2) = cvGetReal2D(K, 1, 2);
+
+	cameraMatrix.at<double>(2, 0) = cvGetReal2D(K, 2, 0);
+	cameraMatrix.at<double>(2, 1) = cvGetReal2D(K, 2, 1);
+	cameraMatrix.at<double>(2, 2) = cvGetReal2D(K, 2, 2);
+	//cout << "daf1" << endl;
+
+
+	vector<cv::Point3f> objectPoints;
+	vector<cv::Point2f> imagePoints;
+	for (int iPoint = 0; iPoint < X->rows; iPoint++)
+	{
+		cv::Point3f X1;
+		cv::Point2f x1;
+		X1.x = cvGetReal2D(X, iPoint, 0);
+		X1.y = cvGetReal2D(X, iPoint, 1);
+		X1.z = cvGetReal2D(X, iPoint, 2);
+
+		x1.x = cvGetReal2D(x, iPoint, 0);
+		x1.y = cvGetReal2D(x, iPoint, 1);
+		objectPoints.push_back(X1);
+		imagePoints.push_back(x1);
+		//cout << iPoint << endl;
+	}
+	//cout << "daf1" << endl;
+	cv::Mat  rvec(3,1,CV_64F), tvec(3,1,CV_64F);
+	cv::Mat diff(4,1,CV_64F);
+	cv::Mat inl;
+	diff.at<double>(0,0) = 0;
+	diff.at<double>(1,0) = 0;
+	diff.at<double>(2,0) = 0;
+	diff.at<double>(3,0) = 0;
+
+	//cout << "daf1" << endl;
+
+	//timeval t1, t2;
+	//gettimeofday(&t1, NULL);
+	cv::solvePnPRansac(objectPoints, imagePoints, cameraMatrix, diff, rvec, tvec, false, nIter, th, 100);//, inl, CV_EPNP);
+	//gettimeofday(&t2, NULL);
+	//cout << "daf" << endl;
+	cv::Mat R_mat;
+	cv::Rodrigues(rvec, R_mat);
+
+	//cout << "pmp : " << measureTime1(t1,t2) << endl;
+
+	cvSetReal2D(P, 0, 0, R_mat.at<double>(0, 0));
+	cvSetReal2D(P, 0, 1, R_mat.at<double>(0, 1));
+	cvSetReal2D(P, 0, 2, R_mat.at<double>(0, 2));
+
+	cvSetReal2D(P, 1, 0, R_mat.at<double>(1, 0));
+	cvSetReal2D(P, 1, 1, R_mat.at<double>(1, 1));
+	cvSetReal2D(P, 1, 2, R_mat.at<double>(1, 2));
+
+	cvSetReal2D(P, 2, 0, R_mat.at<double>(2, 0));
+	cvSetReal2D(P, 2, 1, R_mat.at<double>(2, 1));
+	cvSetReal2D(P, 2, 2, R_mat.at<double>(2, 2));
+
+	cvSetReal2D(P, 0, 3, tvec.at<double>(0));
+	cvSetReal2D(P, 1, 3, tvec.at<double>(1));
+	cvSetReal2D(P, 2, 3, tvec.at<double>(2));
+
+	cvMatMul(K, P, P);
+
+	CvMat *X_ = cvCreateMat(4,1,CV_32FC1);
+	CvMat *x_ = cvCreateMat(3,1,CV_32FC1);
+	for (int i = 0; i < X->rows; i++)
+	{
+		cvSetReal2D(X_, 0, 0, cvGetReal2D(X, i, 0));
+		cvSetReal2D(X_, 1, 0, cvGetReal2D(X, i, 1));
+		cvSetReal2D(X_, 2, 0, cvGetReal2D(X, i, 2));
+		cvSetReal2D(X_, 3, 0, 1);
+		cvMatMul(P, X_, x_);
+		double u = cvGetReal2D(x_, 0, 0)/cvGetReal2D(x_, 2, 0);
+		double v = cvGetReal2D(x_, 1, 0)/cvGetReal2D(x_, 2, 0);
+		
+		double dist = sqrt((u-cvGetReal2D(x, i, 0))*(u-cvGetReal2D(x, i, 0))+(v-cvGetReal2D(x, i, 1))*(v-cvGetReal2D(x, i, 1)));
+		if (dist < th)
+			vInlier.push_back(i);
+		
+	}
+}
+
+int PnP_Opencv1(CvMat *X, CvMat *x, CvMat *K, CvMat *P, double th, int nIter, vector<int> &vInlier)
+{
+	cv::Mat cameraMatrix(3,3,CV_64F);
+	cameraMatrix.at<double>(0, 0) = cvGetReal2D(K, 0, 0);
+	cameraMatrix.at<double>(0, 1) = cvGetReal2D(K, 0, 1);
+	cameraMatrix.at<double>(0, 2) = cvGetReal2D(K, 0, 2);
+
+	cameraMatrix.at<double>(1, 0) = cvGetReal2D(K, 1, 0);
+	cameraMatrix.at<double>(1, 1) = cvGetReal2D(K, 1, 1);
+	cameraMatrix.at<double>(1, 2) = cvGetReal2D(K, 1, 2);
+
+	cameraMatrix.at<double>(2, 0) = cvGetReal2D(K, 2, 0);
+	cameraMatrix.at<double>(2, 1) = cvGetReal2D(K, 2, 1);
+	cameraMatrix.at<double>(2, 2) = cvGetReal2D(K, 2, 2);
+	//cout << "daf1" << endl;
+
+
+	vector<cv::Point3f> objectPoints;
+	vector<cv::Point2f> imagePoints;
+	for (int iPoint = 0; iPoint < X->rows; iPoint++)
+	{
+		cv::Point3f X1;
+		cv::Point2f x1;
+		X1.x = cvGetReal2D(X, iPoint, 0);
+		X1.y = cvGetReal2D(X, iPoint, 1);
+		X1.z = cvGetReal2D(X, iPoint, 2);
+
+		x1.x = cvGetReal2D(x, iPoint, 0);
+		x1.y = cvGetReal2D(x, iPoint, 1);
+		objectPoints.push_back(X1);
+		imagePoints.push_back(x1);
+		//cout << iPoint << endl;
+	}
+	//cout << "daf1" << endl;
+	cv::Mat  rvec(3,1,CV_64F), tvec(3,1,CV_64F);
+	cv::Mat diff(4,1,CV_64F);
+	cv::Mat inl;
+	diff.at<double>(0,0) = 0;
+	diff.at<double>(1,0) = 0;
+	diff.at<double>(2,0) = 0;
+	diff.at<double>(3,0) = 0;
+
+	//cout << "daf1" << endl;
+	cv::solvePnP(objectPoints, imagePoints, cameraMatrix, diff, rvec, tvec, false, CV_P3P);//, inl, CV_EPNP);
+	//cout << "daf" << endl;
+	cv::Mat R_mat;
+	cv::Rodrigues(rvec, R_mat);
+
+	cvSetReal2D(P, 0, 0, R_mat.at<double>(0, 0));
+	cvSetReal2D(P, 0, 1, R_mat.at<double>(0, 1));
+	cvSetReal2D(P, 0, 2, R_mat.at<double>(0, 2));
+
+	cvSetReal2D(P, 1, 0, R_mat.at<double>(1, 0));
+	cvSetReal2D(P, 1, 1, R_mat.at<double>(1, 1));
+	cvSetReal2D(P, 1, 2, R_mat.at<double>(1, 2));
+
+	cvSetReal2D(P, 2, 0, R_mat.at<double>(2, 0));
+	cvSetReal2D(P, 2, 1, R_mat.at<double>(2, 1));
+	cvSetReal2D(P, 2, 2, R_mat.at<double>(2, 2));
+
+	cvSetReal2D(P, 0, 3, tvec.at<double>(0));
+	cvSetReal2D(P, 1, 3, tvec.at<double>(1));
+	cvSetReal2D(P, 2, 3, tvec.at<double>(2));
+
+	cvMatMul(K, P, P);
+
+	CvMat *X_ = cvCreateMat(4,1,CV_32FC1);
+	CvMat *x_ = cvCreateMat(3,1,CV_32FC1);
+	for (int i = 0; i < X->rows; i++)
+	{
+		cvSetReal2D(X_, 0, 0, cvGetReal2D(X, i, 0));
+		cvSetReal2D(X_, 1, 0, cvGetReal2D(X, i, 1));
+		cvSetReal2D(X_, 2, 0, cvGetReal2D(X, i, 2));
+		cvSetReal2D(X_, 3, 0, 1);
+		cvMatMul(P, X_, x_);
+		double u = cvGetReal2D(x_, 0, 0)/cvGetReal2D(x_, 2, 0);
+		double v = cvGetReal2D(x_, 1, 0)/cvGetReal2D(x_, 2, 0);
+		
+		double dist = sqrt((u-cvGetReal2D(x, i, 0))*(u-cvGetReal2D(x, i, 0))+(v-cvGetReal2D(x, i, 1))*(v-cvGetReal2D(x, i, 1)));
+		if (dist < th)
+			vInlier.push_back(i);
+		
+	}
 }
 
 int DLT_ExtrinsicCameraParamEstimationWRansac_EPNP_mem_abs(CvMat *X, CvMat *x, CvMat *K, CvMat *P, double ransacThreshold, int ransacMaxIter, vector<int> &vInlierIndex)
